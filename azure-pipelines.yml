@@ -1,0 +1,86 @@
+# azure-pipelines.yml
+# ====================
+# Azure DevOps CI/CD pipeline for the Intelligent Documentation Engine.
+#
+# Trigger: any change to source files tracked in config.json (src/, config.json)
+# Steps:
+#   1. Install Python dependencies
+#   2. Run the 4-phase doc engine pipeline (detects changes, generates .docx)
+#   3. Publish the generated .docx to Azure DevOps Wiki
+#
+# Required pipeline variables (set in Azure DevOps → Pipelines → Variables):
+#   ANTHROPIC_API_KEY   — Claude API key (mark as secret)
+#   ADO_ORG_URL         — e.g. https://dev.azure.com/myorg
+#   ADO_PROJECT         — e.g. MyProject
+#   ADO_WIKI_ID         — wiki identifier (from the wiki URL)
+#   ADO_WIKI_PAGE_PATH  — wiki page path, e.g. /Documentation/AUD
+#
+# Required pipeline permission:
+#   In Pipeline settings → enable "Allow scripts to access the OAuth token"
+#   so that $(System.AccessToken) can authenticate against the Wiki REST API.
+
+trigger:
+  branches:
+    include:
+      - main
+      - master
+  paths:
+    include:
+      - src/**
+      - config.json
+      - templates/**
+
+pr: none  # documentation updates don't run on pull requests
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  PYTHON_VERSION: "3.11"
+
+steps:
+
+  # ─── Setup ────────────────────────────────────────────────────────────────
+
+  - task: UsePythonVersion@0
+    displayName: "Use Python $(PYTHON_VERSION)"
+    inputs:
+      versionSpec: "$(PYTHON_VERSION)"
+      addToPath: true
+
+  - script: |
+      python -m pip install --upgrade pip
+      pip install -r requirements.txt
+    displayName: "Install Python dependencies"
+    workingDirectory: $(Build.SourcesDirectory)
+
+  # ─── Run the documentation pipeline ──────────────────────────────────────
+
+  - script: python -m src.runner
+    displayName: "Run intelligent-doc-engine (4-phase pipeline)"
+    workingDirectory: $(Build.SourcesDirectory)
+    env:
+      ANTHROPIC_API_KEY: $(ANTHROPIC_API_KEY)
+    # Exit code 0 even if Gate 1 skips (no changes) — the publish step handles the no-op case
+
+  # ─── Publish to Azure DevOps Wiki ─────────────────────────────────────────
+
+  - script: python scripts/publish_to_wiki.py
+    displayName: "Publish .docx to Azure DevOps Wiki"
+    workingDirectory: $(Build.SourcesDirectory)
+    env:
+      SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+      ADO_ORG_URL: $(ADO_ORG_URL)
+      ADO_PROJECT: $(ADO_PROJECT)
+      ADO_WIKI_ID: $(ADO_WIKI_ID)
+      ADO_WIKI_PAGE_PATH: $(ADO_WIKI_PAGE_PATH)
+
+  # ─── Publish artifacts (optional — keeps the .docx in the pipeline run) ──
+
+  - task: PublishPipelineArtifact@1
+    displayName: "Archive generated documents"
+    condition: succeededOrFailed()
+    inputs:
+      targetPath: $(Build.SourcesDirectory)/output
+      artifact: generated-docs
+      publishLocation: pipeline

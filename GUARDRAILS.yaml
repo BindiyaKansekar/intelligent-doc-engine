@@ -1,0 +1,167 @@
+# =============================================================================
+# GUARDRAILS.yaml — Intelligent Documentation Engine
+# =============================================================================
+# Adapted from the devops toolkit template.
+# Enforces folder boundaries, phase gates, and content standards for the
+# 4-phase multi-agent documentation pipeline.
+# =============================================================================
+
+project:
+  name: "intelligent-doc-engine"
+  version: "2.0.0"
+
+# -----------------------------------------------------------------------------
+# Folder Boundaries: Which agent can write to which directories
+# -----------------------------------------------------------------------------
+folder_boundaries:
+  lead-orchestrator:
+    allowed_write:
+      - "plans/"
+      - "thoughts/"
+    description: "Lead orchestrator coordinates via phase gates; writes plans and progress logs"
+
+  scanner:
+    allowed_write:
+      - "research/"
+    description: "Scanner agent writes scan reports and diff results to research/"
+
+  analyzer:
+    allowed_write:
+      - "plans/"
+    description: "Analyzer agent writes doc plans to plans/"
+
+  builder:
+    allowed_write:
+      - "scripts/"
+      - "output/"
+    description: "Builder agent writes reproducible scripts to scripts/ and final docs to output/"
+
+  reviewer:
+    allowed_write:
+      - "testscripts/"
+      - "hash_store/"
+    description: "Reviewer agent writes validation reports to testscripts/ and persists hashes to hash_store/ ONLY on PASS"
+
+  devils-advocate:
+    allowed_write:
+      - "testscripts/"
+    description: "Devil's advocate writes Gate 2 challenge reports to testscripts/"
+
+  peer-reviewer:
+    allowed_write:
+      - "testscripts/"
+    description: "Peer reviewer writes Gate 3 review reports to testscripts/"
+
+# -----------------------------------------------------------------------------
+# Immutable Directories: No agent or script may modify these
+# -----------------------------------------------------------------------------
+immutable_directories:
+  templates:
+    path: "templates/"
+    description: "Word document templates — never modified by agents or scripts. Read-only."
+  source:
+    path: "src/"
+    description: "Core Python modules (sha_scanner, claude_engine, template_writer, versioner) — unchanged by agents."
+
+# -----------------------------------------------------------------------------
+# Phase Dependencies: Enforced by phase_guard.py
+# Phase gates are enforced by the Lead Orchestrator between phases.
+# -----------------------------------------------------------------------------
+phase_dependencies:
+  phase1_research:
+    prerequisites: []
+    completion_marker: "research/"
+    gate: "GATE 1: Were changes detected? If no changes — STOP. If changes — proceed to Phase 2."
+    description: "No prerequisites. Scanner runs, produces research/{project}_scan_report.yaml."
+
+  phase2_planning:
+    prerequisites: ["phase1_research"]
+    completion_marker: "plans/"
+    gate: "GATE 2: Devil's advocate validates doc plan completeness and consistency"
+    gate_requirements:
+      - "sections_to_generate must be non-empty"
+      - "version_bump_type must be major, minor, or patch"
+      - "changed_files must match scan report"
+      - "Devil's advocate challenge must PASS"
+    description: "Requires Phase 1 scan report with detected changes."
+
+  phase3_build:
+    prerequisites: ["phase2_planning"]
+    completion_marker: "output/"
+    gate: "GATE 3: Peer reviewer validates generated document quality and completeness"
+    gate_requirements:
+      - "All 6 REQUIRED_SECTIONS must be non-empty"
+      - "Output .docx must exist and be non-zero size"
+      - "No unfilled {{PLACEHOLDER}} tokens in replacements"
+      - "Peer review must PASS"
+    description: "Requires Phase 2 doc plan. Builder calls Claude API, assigns version, writes .docx."
+
+  phase4_review:
+    prerequisites: ["phase3_build"]
+    completion_marker: "testscripts/"
+    description: "Reviewer validates document completeness. Persists hashes to hash_store/ ONLY on PASS (idempotency)."
+
+# -----------------------------------------------------------------------------
+# Core Philosophy (preserved from intelligent-doc-engine)
+# -----------------------------------------------------------------------------
+core_philosophy:
+  efficiency:
+    rule: "Gate 1 stops the pipeline immediately if no files changed — no API cost, no version bump"
+    on_no_changes: "log and return — do not proceed to Phase 2"
+
+  idempotency:
+    rule: "Hash store updated ONLY after Phase 4 Reviewer validates the document"
+    on_failure: "Hashes stay unchanged — next run retries from scratch"
+
+  concurrency:
+    rule: "Multiple projects processed concurrently via asyncio.gather"
+
+  error_handling:
+    rule: "Never silently swallow errors — all exceptions logged and propagated"
+
+# -----------------------------------------------------------------------------
+# Content Standards
+# -----------------------------------------------------------------------------
+content_standards:
+  naming_conventions:
+    file_naming: "snake_case"
+    description: "All generated files use snake_case naming"
+
+  required_yaml_fields:
+    scan_report:
+      - "metadata"
+      - "changed_files"
+      - "diff_stats"
+    doc_plan:
+      - "metadata"
+      - "sections_to_generate"
+      - "version_bump_type"
+      - "changed_files"
+
+  required_doc_sections:
+    - "OVERVIEW"
+    - "FILE_INVENTORY"
+    - "DATA_FLOWS"
+    - "DEPENDENCIES"
+    - "CONFIGURATION"
+    - "KNOWN_ISSUES"
+
+  required_script_elements:
+    - "docstring"
+    - "type_hints"
+    - "error_handling"
+
+# -----------------------------------------------------------------------------
+# Size Limits
+# -----------------------------------------------------------------------------
+size_limits:
+  max_file_size_kb: 500
+  max_output_files: 100
+
+# -----------------------------------------------------------------------------
+# Logging
+# -----------------------------------------------------------------------------
+logging:
+  log_directory: "thoughts/logs/"
+  log_format: "{timestamp} | {guard} | {status} | {message}"
+  log_level: "INFO"

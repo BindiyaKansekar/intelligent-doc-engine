@@ -1,0 +1,27 @@
+metadata:
+  project_name: intelligent_doc_engine
+  planned_at: 2026-05-29T05:13:14 UTC
+  agent: analyzer
+  source_scan: research/intelligent_doc_engine_scan_report.yaml
+sections_to_generate:
+- OVERVIEW
+- FILE_INVENTORY
+- DATA_FLOWS
+- DEPENDENCIES
+- CONFIGURATION
+- KNOWN_ISSUES
+version_bump_type: major
+changed_files:
+- C:\Work\intelligent-doc-engine\src\agents\analyzer_agent.py
+- C:\Work\intelligent-doc-engine\src\agents\builder_agent.py
+- C:\Work\intelligent-doc-engine\src\agents\reviewer_agent.py
+- C:\Work\intelligent-doc-engine\src\agents\scanner_agent.py
+- C:\Work\intelligent-doc-engine\src\claude_engine.py
+- C:\Work\intelligent-doc-engine\src\git_tracker.py
+- C:\Work\intelligent-doc-engine\src\versioner.py
+commit_sha: null
+associated_document_path: output\intelligent_doc_engine\AUD_v1.0.0.docx
+rationale:
+  version_bump: 7/12 files changed (>50% of tracked files) — significant refactor
+    → major bump
+  sections: All 6 sections regenerated (code or config files changed)

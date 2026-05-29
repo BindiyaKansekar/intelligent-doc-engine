@@ -1,0 +1,106 @@
+{
+  "name": "Intelligent Documentation Engine",
+  "version": "2.0.0",
+  "description": "AI-powered doc engine using multi-agent architecture. Scanner detects changes, Analyzer plans sections, Builder generates docs via Claude API, Reviewer validates and persists hashes.",
+
+  "experimental": {
+    "agent_teams": true
+  },
+
+  "agents": {
+    "lead-orchestrator": {
+      "path": ".claude/agents/lead-orchestrator.md",
+      "role": "lead",
+      "triggers": ["start", "run pipeline", "generate docs", "orchestrate"],
+      "description": "Lead orchestrator: coordinates 4-phase pipeline with skip-if-no-changes efficiency, quality gates, and idempotent hash persistence."
+    },
+    "scanner": {
+      "path": ".claude/agents/scanner-agent.md",
+      "role": "teammate",
+      "triggers": ["scan", "detect changes", "hash files", "phase 1"],
+      "description": "Phase 1: Scans source directories, computes SHA-256 hashes, detects changed files, writes research/{name}_scan_report.yaml"
+    },
+    "analyzer": {
+      "path": ".claude/agents/analyzer-agent.md",
+      "role": "teammate",
+      "triggers": ["plan", "analyze changes", "determine sections", "phase 2"],
+      "description": "Phase 2: Reads scan report, plans doc sections and version bump type, writes plans/{name}_doc_plan.yaml"
+    },
+    "builder": {
+      "path": ".claude/agents/builder-agent.md",
+      "role": "teammate",
+      "triggers": ["build", "generate doc", "call claude", "write docx", "phase 3"],
+      "description": "Phase 3: Calls Claude API, assigns semantic version, writes versioned Word doc to output/"
+    },
+    "reviewer": {
+      "path": ".claude/agents/reviewer-agent.md",
+      "role": "teammate",
+      "triggers": ["review", "validate doc", "persist hashes", "phase 4"],
+      "description": "Phase 4: Validates doc completeness, persists hashes to hash_store/ ONLY on PASS (idempotency), writes testscripts/{name}_validation_report.yaml"
+    },
+    "devils-advocate": {
+      "path": ".claude/agents/devils-advocate-agent.md",
+      "role": "teammate",
+      "triggers": ["challenge plan", "devil's advocate", "gate 2"],
+      "description": "Gate 2: Challenges the doc plan for completeness and validity. FAIL is a hard block on Phase 3."
+    },
+    "peer-reviewer": {
+      "path": ".claude/agents/peer-reviewer-agent.md",
+      "role": "teammate",
+      "triggers": ["peer review", "review doc", "gate 3"],
+      "description": "Gate 3: Reviews the generated document for quality and completeness. FAIL blocks Phase 4 and hash persistence."
+    }
+  },
+
+  "workflow": {
+    "phase1": {
+      "name": "Research (Scan)",
+      "owner": "scanner",
+      "description": "Scan source files, compute SHA-256 hashes, detect changes",
+      "outputs": ["research/"],
+      "gate": "GATE 1: If no changes → STOP (no API cost). Else → proceed to Phase 2."
+    },
+    "phase2": {
+      "name": "Planning",
+      "owner": "analyzer",
+      "depends_on": ["phase1"],
+      "challengers": ["devils-advocate"],
+      "description": "Plan which sections to generate, determine version bump type",
+      "outputs": ["plans/"],
+      "gate": "GATE 2: Devil's advocate must PASS before Phase 3."
+    },
+    "phase3": {
+      "name": "Build",
+      "owner": "builder",
+      "depends_on": ["phase2"],
+      "reviewers": ["peer-reviewer"],
+      "description": "Generate doc via Claude API, assign version, write .docx to output/",
+      "outputs": ["output/"],
+      "gate": "GATE 3: Peer reviewer must PASS before Phase 4."
+    },
+    "phase4": {
+      "name": "Review",
+      "owner": "reviewer",
+      "depends_on": ["phase3"],
+      "description": "Validate doc completeness, persist hashes (idempotency)",
+      "outputs": ["testscripts/", "hash_store/"]
+    }
+  },
+
+  "folder_boundaries": {
+    "lead-orchestrator": ["plans/", "thoughts/"],
+    "scanner": ["research/"],
+    "analyzer": ["plans/"],
+    "builder": ["scripts/", "output/"],
+    "reviewer": ["testscripts/", "hash_store/"],
+    "devils-advocate": ["testscripts/"],
+    "peer-reviewer": ["testscripts/"]
+  },
+
+  "core_philosophy": {
+    "efficiency": "Skip-if-no-changes: Gate 1 stops the pipeline immediately if no files changed",
+    "idempotency": "Hash persistence: hashes saved ONLY after Phase 4 Reviewer validates the doc",
+    "concurrency": "asyncio.gather: multiple projects processed concurrently",
+    "reliability": "Never silently swallow errors: all exceptions logged and propagated"
+  }
+}

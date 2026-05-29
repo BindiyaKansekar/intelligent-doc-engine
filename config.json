@@ -1,0 +1,28 @@
+{
+  "projects": [
+    {
+      "name": "intelligent_doc_engine",
+      "source_paths": [
+        "C:/Work/intelligent-doc-engine/src"
+      ],
+      "file_types": [
+        ".py",
+        ".json",
+        ".yaml",
+        ".yml",
+        ".md"
+      ],
+      "output_dir": "output/intelligent_doc_engine"
+    }
+  ],
+  "settings": {
+    "log_level": "INFO",
+    "log_dir": "logs",
+    "commit_tracking": true,
+    "hash_store_dir": "hash_store",
+    "template_path": "templates/AUD_template.docx",
+    "claude_model": "claude-sonnet-4-6",
+    "max_tokens": 4096,
+    "mock_mode": true
+  }
+}

@@ -1,0 +1,17 @@
+metadata:
+  project_name: intelligent_doc_engine
+  reviewed_at: 2026-05-29T05:13:14 UTC
+  agent: reviewer
+  document_path: output\intelligent_doc_engine\AUD_v2.0.0.docx
+  version: 2.0.0
+verdict: PASS
+checks:
+  document_exists: true
+  document_size_bytes: 38767
+  all_sections_populated: true
+  no_unfilled_placeholders: true
+issues: []
+hash_persistence:
+  status: PERSISTED
+  hash_store_path: hash_store/intelligent_doc_engine.json
+  note: Hashes persisted ONLY after successful validation — idempotency guarantee
