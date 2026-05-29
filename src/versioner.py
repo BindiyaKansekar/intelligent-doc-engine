@@ -34,6 +34,7 @@ class VersionEntry(TypedDict):
     generated_at: str          # ISO-8601 UTC timestamp
     changed_files: list[str]   # Files that triggered this version
     document_path: str         # Relative path to the generated .docx
+    additional_points_path: str  # Relative path to additional points markdown
     commit_sha: str | None     # Commit that triggered this run (if available)
 
 
@@ -185,6 +186,7 @@ def record_new_version(
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "changed_files": changed_files,
         "document_path": doc_path,
+        "additional_points_path": str(Path(output_dir) / f"AUD_v{new_version}_additional_points.md"),
         "commit_sha": commit_sha,
     }
     history.append(entry)

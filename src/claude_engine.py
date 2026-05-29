@@ -335,6 +335,72 @@ The output must reflect code changes from this commit while preserving unaffecte
     return sections
 
 
+def generate_additional_points(
+    project_name: str,
+    changed_files: list[str],
+    associated_document_path: str | None = None,
+    commit_sha: str | None = None,
+    model: str = "claude-sonnet-4-6",
+    max_tokens: int = 1024,
+    mock_mode: bool = False,
+) -> list[str]:
+    """Return concise additional points to append to existing documentation."""
+    if not changed_files:
+        return []
+
+    if mock_mode or not os.getenv("ANTHROPIC_API_KEY"):
+        return [
+            f"Review updates in {Path(fp).name} and align related documentation sections."
+            for fp in changed_files[:8]
+        ]
+
+    import anthropic
+
+    client = anthropic.Anthropic()
+    file_block = _build_file_block(changed_files)
+    prior_document_text = _read_document_context(associated_document_path)
+
+    system_prompt = (
+        "You are a software documentation maintainer. "
+        "Given code changes and existing documentation context, provide concise incremental "
+        "documentation additions as plain bullets."
+    )
+
+    user_prompt = f"""Project: {project_name}
+Triggering commit: {commit_sha or 'unknown'}
+
+Changed code:
+{file_block}
+
+Existing documentation context:
+{prior_document_text or '[No prior documentation available]'}
+
+Return only bullet lines, one point per line, each starting with '- '.
+Focus on NEW points to add to documentation; do not rewrite unchanged content.
+"""
+
+    message = client.messages.create(
+        model=model,
+        max_tokens=max_tokens,
+        system=[{"type": "text", "text": system_prompt}],
+        messages=[{"role": "user", "content": user_prompt}],
+    )
+
+    raw_text: str = message.content[0].text  # type: ignore[index]
+    points: list[str] = []
+    for line in raw_text.splitlines():
+        cleaned = line.strip()
+        if cleaned.startswith("- "):
+            points.append(cleaned[2:].strip())
+        elif cleaned.startswith("*"):
+            points.append(cleaned[1:].strip())
+
+    if not points:
+        fallback = [ln.strip() for ln in raw_text.splitlines() if ln.strip()]
+        return fallback[:10]
+    return points[:10]
+
+
 # ---------------------------------------------------------------------------
 # Response parsing
 # ---------------------------------------------------------------------------

@@ -50,6 +50,16 @@ def find_latest_docx(output_dir: Path) -> Path | None:
     return candidates[0] if candidates else None
 
 
+def find_latest_additional_points(output_dir: Path) -> Path | None:
+    """Return the most recently modified *_additional_points.md, or None."""
+    candidates = sorted(
+        output_dir.rglob("*_additional_points.md"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    return candidates[0] if candidates else None
+
+
 def upload_attachment(session: requests.Session, base_url: str, wiki_id: str, file_path: Path) -> str:
     """Upload file_path as a wiki attachment. Returns the attachment download URL."""
     url = f"{base_url}/_apis/wiki/wikis/{wiki_id}/attachments"
@@ -67,13 +77,16 @@ def upload_attachment(session: requests.Session, base_url: str, wiki_id: str, fi
     return attachment_url
 
 
-def _build_wiki_page_content(docx_name: str, generated_at: str) -> str:
+def _build_wiki_page_content(docx_name: str, generated_at: str, additional_points: str) -> str:
     """Return the markdown content for the wiki page."""
+    additional_points_block = additional_points.strip() or "No additional documentation points for this run."
     return (
         "# Automated Documentation (AUD)\n\n"
         f"> Last updated: {generated_at}\n\n"
         "The latest **Architecture Understanding Document** is attached below.\n\n"
         f"[[_attachments/{docx_name}]]\n\n"
+        "## Additional Points To Add\n\n"
+        f"{additional_points_block}\n\n"
         "---\n"
         "_This page is automatically updated by the [intelligent-doc-engine](https://github.com) "
         "pipeline whenever source files change._\n"
@@ -98,11 +111,12 @@ def upsert_wiki_page(
     page_path: str,
     docx_name: str,
     generated_at: str,
+    additional_points: str,
 ) -> None:
     """Create or update a wiki page with a link to the .docx attachment."""
     url = f"{base_url}/_apis/wiki/wikis/{wiki_id}/pages"
     params = {"path": page_path, "api-version": API_VERSION}
-    content = _build_wiki_page_content(docx_name, generated_at)
+    content = _build_wiki_page_content(docx_name, generated_at, additional_points)
 
     headers: dict[str, str] = {"Content-Type": "application/json"}
 
@@ -143,9 +157,21 @@ def main() -> None:
     session.auth = ("", token)  # PAT / system token auth
 
     generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    additional_points_path = find_latest_additional_points(output_dir)
+    additional_points_text = ""
+    if additional_points_path and additional_points_path.exists():
+        additional_points_text = additional_points_path.read_text(encoding="utf-8", errors="replace")
 
     upload_attachment(session, base_url, wiki_id, docx_path)
-    upsert_wiki_page(session, base_url, wiki_id, page_path, docx_path.name, generated_at)
+    upsert_wiki_page(
+        session,
+        base_url,
+        wiki_id,
+        page_path,
+        docx_path.name,
+        generated_at,
+        additional_points_text,
+    )
 
     logger.info("Done — '%s' published to wiki page '%s'.", docx_path.name, page_path)
 

@@ -25,8 +25,13 @@ from typing import Any
 import yaml
 
 from ..git_tracker import (
+    get_ci_trigger_mode,
     get_head_commit,
+    get_last_processed_commit_for_repo,
+    get_pr_target_branch,
+    get_repo_root,
     list_changed_files_in_commit,
+    list_changed_files_in_pr,
     load_commit_state,
 )
 from ..sha_scanner import FileDiff, diff_hashes, load_hash_store, scan_directory
@@ -46,8 +51,12 @@ class ScanResult:
     report_path: Path
     commit_triggered: bool
     commit_sha: str | None
+    commit_shas: list[str]
     commit_changed_files: list[str]
+    commit_state_updates: dict[str, str]
     associated_document_path: str | None
+    trigger_mode: str
+    pr_target_branch: str | None
 
 
 def run(project: dict[str, Any], settings: dict[str, Any]) -> ScanResult:
@@ -72,22 +81,57 @@ def run(project: dict[str, Any], settings: dict[str, Any]) -> ScanResult:
 
     hash_changed_files = diff["new"] + diff["modified"]
     commit_changed_files: list[str] = []
+    commit_shas: list[str] = []
+    commit_state_updates: dict[str, str] = {}
     commit_sha: str | None = None
     commit_triggered = False
+    trigger_mode = get_ci_trigger_mode()
+    pr_target_branch = get_pr_target_branch()
 
-    if settings.get("commit_tracking", True):
-        commit_sha = get_head_commit(repo_dir=".")
-        if commit_sha:
-            state = load_commit_state(settings["hash_store_dir"], name)
-            last_processed = state.get("last_processed_commit")
-            commit_triggered = commit_sha != last_processed
-            if commit_triggered:
-                commit_changed_files = list_changed_files_in_commit(
-                    commit_sha=commit_sha,
+    repo_roots: list[str] = []
+    for source_path in project["source_paths"]:
+        root = get_repo_root(source_path)
+        if root and root not in repo_roots:
+            repo_roots.append(root)
+
+    if trigger_mode == "pr" and pr_target_branch:
+        commit_triggered = True
+        for repo_root in repo_roots:
+            commit_changed_files.extend(
+                list_changed_files_in_pr(
+                    target_branch=pr_target_branch,
                     source_paths=project["source_paths"],
                     file_types=project["file_types"],
-                    repo_dir=".",
+                    repo_dir=repo_root,
                 )
+            )
+
+    if settings.get("commit_tracking", True) and trigger_mode != "pr":
+        state = load_commit_state(settings["hash_store_dir"], name)
+
+        for repo_root in repo_roots:
+            head_sha = get_head_commit(repo_dir=repo_root)
+            if not head_sha:
+                continue
+
+            last_processed = get_last_processed_commit_for_repo(state, repo_root)
+            if head_sha == last_processed:
+                continue
+
+            commit_triggered = True
+            commit_shas.append(head_sha)
+            commit_state_updates[repo_root] = head_sha
+            commit_changed_files.extend(
+                list_changed_files_in_commit(
+                    commit_sha=head_sha,
+                    source_paths=project["source_paths"],
+                    file_types=project["file_types"],
+                    repo_dir=repo_root,
+                )
+            )
+
+        if commit_shas:
+            commit_sha = commit_shas[0]
 
     changed_files = sorted(set(hash_changed_files + commit_changed_files))
 
@@ -101,9 +145,12 @@ def run(project: dict[str, Any], settings: dict[str, Any]) -> ScanResult:
         changed_files=changed_files,
         diff=diff,
         commit_sha=commit_sha,
+        commit_shas=commit_shas,
         commit_triggered=commit_triggered,
         commit_changed_files=commit_changed_files,
         associated_document_path=associated_document_path,
+        trigger_mode=trigger_mode,
+        pr_target_branch=pr_target_branch,
     )
 
     logger.info(
@@ -118,8 +165,12 @@ def run(project: dict[str, Any], settings: dict[str, Any]) -> ScanResult:
         report_path=report_path,
         commit_triggered=commit_triggered,
         commit_sha=commit_sha,
+        commit_shas=commit_shas,
         commit_changed_files=commit_changed_files,
+        commit_state_updates=commit_state_updates,
         associated_document_path=associated_document_path,
+        trigger_mode=trigger_mode,
+        pr_target_branch=pr_target_branch,
     )
 
 
@@ -130,9 +181,12 @@ def _write_scan_report(
     changed_files: list[str],
     diff: FileDiff,
     commit_sha: str | None,
+    commit_shas: list[str],
     commit_triggered: bool,
     commit_changed_files: list[str],
     associated_document_path: str | None,
+    trigger_mode: str,
+    pr_target_branch: str | None,
 ) -> Path:
     """Serialize scan results to research/{name}_scan_report.yaml.
 
@@ -168,8 +222,11 @@ def _write_scan_report(
         },
         "commit_tracking": {
             "enabled": settings.get("commit_tracking", True),
+            "trigger_mode": trigger_mode,
+            "pr_target_branch": pr_target_branch,
             "triggered": commit_triggered,
             "commit_sha": commit_sha,
+            "commit_shas": commit_shas,
             "commit_changed_files": commit_changed_files,
         },
         "associated_document": {

@@ -2,11 +2,11 @@
 # ====================
 # Azure DevOps CI/CD pipeline for the Intelligent Documentation Engine.
 #
-# Trigger: any change to source files tracked in config.json (src/, config.json)
+# Trigger: any commit or PR update for tracked source/documentation files.
 # Steps:
 #   1. Install Python dependencies
 #   2. Run the 4-phase doc engine pipeline (detects changes, generates .docx)
-#   3. Publish the generated .docx to Azure DevOps Wiki
+#   3. Publish generated documentation artifacts (.docx + additional points)
 #
 # Required pipeline variables (set in Azure DevOps → Pipelines → Variables):
 #   ANTHROPIC_API_KEY   — Claude API key (mark as secret)
@@ -22,15 +22,26 @@
 trigger:
   branches:
     include:
-      - main
-      - master
+      - "*"
   paths:
     include:
       - src/**
       - config.json
       - templates/**
+      - scripts/**
+      - azure-pipelines.yml
 
-pr: none  # documentation updates don't run on pull requests
+pr:
+  branches:
+    include:
+      - "*"
+  paths:
+    include:
+      - src/**
+      - config.json
+      - templates/**
+      - scripts/**
+      - azure-pipelines.yml
 
 pool:
   vmImage: ubuntu-latest
@@ -39,6 +50,10 @@ variables:
   PYTHON_VERSION: "3.11"
 
 steps:
+
+  - checkout: self
+    persistCredentials: true
+    fetchDepth: 0
 
   # ─── Setup ────────────────────────────────────────────────────────────────
 

@@ -12,6 +12,7 @@ import pytest
 
 from src.claude_engine import (
     REQUIRED_SECTIONS,
+    generate_additional_points,
     _parse_sections,
     _read_file_content,
 )
@@ -74,6 +75,21 @@ class TestParseSections:
         result = _parse_sections(raw)
         assert "DEPENDENCIES" in result
         assert "OVERVIEW" not in result  # only what's present
+
+
+class TestAdditionalPoints:
+    def test_generate_additional_points_mock(self, tmp_path) -> None:
+        f = tmp_path / "updated.py"
+        f.write_text("x = 1", encoding="utf-8")
+
+        points = generate_additional_points(
+            project_name="demo",
+            changed_files=[str(f)],
+            mock_mode=True,
+        )
+
+        assert points
+        assert any("updated.py" in p for p in points)
 
 
 # ---------------------------------------------------------------------------

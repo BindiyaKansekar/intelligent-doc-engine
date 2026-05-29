@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from ..claude_engine import generate_documentation_sections
+from ..claude_engine import generate_additional_points, generate_documentation_sections
 from ..template_writer import write_document
 from ..versioner import record_new_version
 from .analyzer_agent import DocPlan
@@ -36,6 +36,8 @@ class BuildResult:
     new_version: str
     sections: dict[str, str]
     replacements: dict[str, str]
+    additional_points: list[str]
+    additional_points_path: Path
 
 
 def run(
@@ -91,6 +93,23 @@ def run(
         replacements=replacements,
     )
 
+    additional_points = generate_additional_points(
+        project_name=name,
+        changed_files=doc_plan.changed_files,
+        associated_document_path=doc_plan.associated_document_path,
+        commit_sha=doc_plan.commit_sha,
+        model=settings.get("claude_model", "claude-sonnet-4-6"),
+        max_tokens=settings.get("max_tokens", 4096),
+        mock_mode=settings.get("mock_mode", False),
+    )
+
+    additional_points_path = Path(project["output_dir"]) / f"AUD_v{new_version}_additional_points.md"
+    additional_points_path.parent.mkdir(parents=True, exist_ok=True)
+    with additional_points_path.open("w", encoding="utf-8") as fh:
+        fh.write("# Additional Documentation Points\n\n")
+        for point in additional_points:
+            fh.write(f"- {point}\n")
+
     doc_output_path = Path(doc_output_path_str)
     logger.info(
         "[Builder] Phase 3 complete for '%s' — version: %s, document: %s",
@@ -102,4 +121,6 @@ def run(
         new_version=new_version,
         sections=sections,
         replacements=replacements,
+        additional_points=additional_points,
+        additional_points_path=additional_points_path,
     )

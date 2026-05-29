@@ -16,7 +16,11 @@ venv/
 # Generated artefacts — keep directory structure, ignore content
 hash_store/*.json
 output/**/AUD_v*.docx
+output/**/AUD_v*_additional_points.md
 output/**/version_history.json
+plans/*_doc_plan.yaml
+research/*_scan_report.yaml
+testscripts/*_validation_report.yaml
 logs/*.log
 
 # Editor

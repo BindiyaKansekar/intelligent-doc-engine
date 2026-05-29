@@ -100,12 +100,31 @@ def run(
     if unfilled:
         issues.append(f"Unfilled placeholder tokens in fields: {', '.join(unfilled)}")
 
+    # Check 5: Additional points file exists and has content
+    points_exists = build_result.additional_points_path.exists()
+    checks["additional_points_file_exists"] = points_exists
+    if not points_exists:
+        issues.append(f"Additional points file not found: {build_result.additional_points_path}")
+    else:
+        points_size = build_result.additional_points_path.stat().st_size
+        checks["additional_points_file_size_bytes"] = points_size
+        if points_size == 0:
+            issues.append(f"Additional points file is empty: {build_result.additional_points_path}")
+
     passed = len(issues) == 0
     hash_status = "SKIPPED"
 
     if passed:
         save_hash_store(settings["hash_store_dir"], name, scan_result.current_hashes)
-        if scan_result.commit_sha:
+        if scan_result.commit_state_updates:
+            for repo_root, repo_commit_sha in scan_result.commit_state_updates.items():
+                save_commit_state(
+                    settings["hash_store_dir"],
+                    name,
+                    repo_commit_sha,
+                    repo_root=repo_root,
+                )
+        elif scan_result.commit_sha:
             save_commit_state(settings["hash_store_dir"], name, scan_result.commit_sha)
         hash_status = "PERSISTED"
         logger.info(
@@ -165,6 +184,7 @@ def _write_validation_report(
             "reviewed_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S UTC"),
             "agent": "reviewer",
             "document_path": str(build_result.doc_output_path),
+            "additional_points_path": str(build_result.additional_points_path),
             "version": build_result.new_version,
         },
         "verdict": "PASS" if passed else "FAIL",
