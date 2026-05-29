@@ -3,6 +3,8 @@ runner.py (Lead Orchestrator)
 ==============================
 Lead Orchestrator for the Intelligent Documentation Engine.
 
+Demo note: this file was intentionally updated to validate post-commit pipeline execution.
+
 Orchestrates the 4-phase documentation pipeline with quality gates:
 
   Phase 1: RESEARCH  — Scanner Agent scans source files, detects changes
