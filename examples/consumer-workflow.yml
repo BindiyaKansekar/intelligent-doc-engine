@@ -1,0 +1,142 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# intelligent-doc-engine — Consumer Workflow Template
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Copy this file to .github/workflows/analytics-docs.yml in your data project.
+#
+# SETUP (one-time, per-repo):
+#   1. Add ANTHROPIC_API_KEY as a GitHub secret in your repo:
+#        Settings → Secrets and variables → Actions → New repository secret
+#   2. Replace YOUR_ORG below with your GitHub organisation name.
+#   3. Adjust the `paths:` filter to match your project's file layout.
+#
+# WHAT THIS DOES:
+#   On every PR that touches a SQL / ADF / Azure Function file, the workflow:
+#     • Fetches the changed files from the GitHub API
+#     • Parses table lineage, column mappings, PK/FK relationships (Snowflake)
+#     • Calls Claude to generate a Markdown documentation summary
+#     • Posts the documentation as a PR comment
+#     • Uploads the doc as a downloadable artifact
+#
+# SUPPORTED REPO TYPES (auto-detected, or force with `repo_type`):
+#   snowflake            — .sql files (Snowflake dialect)
+#   adf                  — Azure Data Factory pipelines / datasets / linked services
+#   azure_function_python / azure_function_typescript — Azure Functions
+#   mixed                — combination of the above
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: Analytics PR Documentation
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    # Adjust these paths to match your project structure.
+    paths:
+      - "**/*.sql"
+      - "**/pipeline/*.json"
+      - "**/dataset/*.json"
+      - "**/linkedService/*.json"
+      - "**/linkedservice/*.json"
+      - "**/function_app.py"
+      - "**/function.json"
+      - "**/__init__.py"
+
+  # Allow re-running manually on any PR from the Actions tab.
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number to document"
+        required: true
+        type: number
+      repo_type:
+        description: "Force repo type (blank = auto-detect)"
+        required: false
+        default: "auto"
+        type: choice
+        options: [auto, snowflake, adf, azure_function_python, azure_function_typescript, mixed]
+
+jobs:
+  generate-docs:
+    name: Generate PR Documentation
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write   # required to post the PR comment
+      contents: read
+
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # ── Install the doc engine ───────────────────────────────────────────
+      # The engine is fetched directly from GitHub — no local checkout needed.
+      # For a private engine repo use a PAT stored as ENGINE_TOKEN:
+      #   pip install "git+https://${{ secrets.ENGINE_TOKEN }}@github.com/YOUR_ORG/intelligent-doc-engine.git@main"
+      - name: Install intelligent-doc-engine
+        run: |
+          pip install "git+https://github.com/YOUR_ORG/intelligent-doc-engine.git@main"
+
+      # ── Resolve PR number ────────────────────────────────────────────────
+      - name: Resolve PR number
+        id: pr
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "number=${{ github.event.inputs.pr_number }}" >> $GITHUB_OUTPUT
+          else
+            echo "number=${{ github.event.pull_request.number }}" >> $GITHUB_OUTPUT
+          fi
+
+      # ── Generate documentation ───────────────────────────────────────────
+      - name: Generate analytics documentation
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR="${{ steps.pr.outputs.number }}"
+          TYPE_ARG=""
+          if [ -n "${{ github.event.inputs.repo_type }}" ] && [ "${{ github.event.inputs.repo_type }}" != "auto" ]; then
+            TYPE_ARG="--type ${{ github.event.inputs.repo_type }}"
+          fi
+          analytics-doc scan-pr \
+            --provider github \
+            --repo "${{ github.repository }}" \
+            --pr "$PR" \
+            --output "pr-${PR}-docs.md" \
+            $TYPE_ARG
+
+      # ── Post as PR comment ───────────────────────────────────────────────
+      - name: Post documentation as PR comment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR="${{ steps.pr.outputs.number }}"
+          if [ -f "pr-${PR}-docs.md" ]; then
+            gh pr comment "$PR" \
+              --repo "${{ github.repository }}" \
+              --body-file "pr-${PR}-docs.md"
+          else
+            echo "No output file found — skipping comment."
+          fi
+
+      # ── Keep a downloadable copy ─────────────────────────────────────────
+      - name: Upload docs artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: analytics-pr-docs-${{ steps.pr.outputs.number }}
+          path: "pr-*-docs.md"
+          retention-days: 30
+
+  # ── Optional: call the engine as a reusable workflow ──────────────────────
+  # Uncomment this block instead of the job above if you prefer centralised
+  # workflow logic (single source of truth in the engine repo).
+  #
+  # generate-docs-reusable:
+  #   uses: YOUR_ORG/intelligent-doc-engine/.github/workflows/analytics-doc.yml@main
+  #   with:
+  #     pr_number: ${{ github.event.pull_request.number }}
+  #     repo: ${{ github.repository }}
+  #     repo_type: auto          # or: snowflake / adf / azure_function_python
+  #     engine_ref: main         # pin to a tag for stability, e.g. v1.0.0
+  #   secrets:
+  #     ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}

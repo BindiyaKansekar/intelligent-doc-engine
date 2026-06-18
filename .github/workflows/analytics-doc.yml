@@ -24,6 +24,31 @@ on:
         default: "auto"
         type: choice
         options: [auto, snowflake, adf, azure_function_python, azure_function_typescript]
+  # Reusable workflow — called by other repos via:
+  #   uses: YOUR_ORG/intelligent-doc-engine/.github/workflows/analytics-doc.yml@main
+  workflow_call:
+    inputs:
+      pr_number:
+        description: "PR number to document"
+        required: true
+        type: number
+      repo:
+        description: "Target repo (owner/repo). Defaults to the calling repo."
+        required: false
+        type: string
+      repo_type:
+        description: "Force repo type (auto, snowflake, adf, azure_function_python, azure_function_typescript)"
+        required: false
+        default: "auto"
+        type: string
+      engine_ref:
+        description: "Branch/tag of intelligent-doc-engine to install (default: main)"
+        required: false
+        default: "main"
+        type: string
+    secrets:
+      ANTHROPIC_API_KEY:
+        required: true
 
 jobs:
   analytics-doc:
@@ -33,7 +58,10 @@ jobs:
       contents: read
 
     steps:
+      # Checkout is only needed when running inside the engine repo itself.
+      # In workflow_call mode the engine is installed via pip below.
       - uses: actions/checkout@v4
+        if: github.event_name != 'workflow_call'
         with:
           fetch-depth: 0
 
@@ -42,16 +70,30 @@ jobs:
           python-version: "3.11"
           cache: pip
 
-      - name: Install dependencies
-        run: pip install -r requirements.txt
+      # Install from local source when running in the engine repo
+      - name: Install from source (engine repo)
+        if: github.event_name != 'workflow_call'
+        run: pip install -e ".[dev]"
 
-      - name: Determine PR number
+      # Install as a package when called from another repo
+      - name: Install intelligent-doc-engine (pip)
+        if: github.event_name == 'workflow_call'
+        run: |
+          pip install "git+https://github.com/${{ github.repository }}.git@${{ inputs.engine_ref }}"
+
+      - name: Determine PR number and target repo
         id: pr
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "number=${{ github.event.inputs.pr_number }}" >> $GITHUB_OUTPUT
+            echo "repo=${{ github.repository }}" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event_name }}" = "workflow_call" ]; then
+            echo "number=${{ inputs.pr_number }}" >> $GITHUB_OUTPUT
+            TARGET_REPO="${{ inputs.repo }}"
+            echo "repo=${TARGET_REPO:-${{ github.repository }}}" >> $GITHUB_OUTPUT
           else
             echo "number=${{ github.event.pull_request.number }}" >> $GITHUB_OUTPUT
+            echo "repo=${{ github.repository }}" >> $GITHUB_OUTPUT
           fi
 
       - name: Generate analytics documentation
@@ -59,17 +101,18 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          REPO="${{ github.repository }}"
+          REPO="${{ steps.pr.outputs.repo }}"
           PR="${{ steps.pr.outputs.number }}"
           TYPE_ARG=""
-          if [ -n "${{ github.event.inputs.repo_type }}" ] && [ "${{ github.event.inputs.repo_type }}" != "auto" ]; then
-            TYPE_ARG="--type ${{ github.event.inputs.repo_type }}"
+          TYPE_INPUT="${{ github.event.inputs.repo_type }}${{ inputs.repo_type }}"
+          if [ -n "$TYPE_INPUT" ] && [ "$TYPE_INPUT" != "auto" ]; then
+            TYPE_ARG="--type $TYPE_INPUT"
           fi
-          python -m src.analytics_runner scan-pr \
+          analytics-doc scan-pr \
             --provider github \
             --repo "$REPO" \
             --pr "$PR" \
-            --output pr-${PR}-analytics-docs.md \
+            --output "pr-${PR}-analytics-docs.md" \
             $TYPE_ARG
 
       - name: Post documentation as PR comment
@@ -77,7 +120,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           PR="${{ steps.pr.outputs.number }}"
-          REPO="${{ github.repository }}"
+          REPO="${{ steps.pr.outputs.repo }}"
           if [ -f "pr-${PR}-analytics-docs.md" ]; then
             gh pr comment "$PR" \
               --repo "$REPO" \
