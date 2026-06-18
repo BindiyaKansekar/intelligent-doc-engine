@@ -28,6 +28,15 @@ class CommitState(TypedDict, total=False):
     repo_commits: dict[str, str]
 
 
+class CommitRecord(TypedDict):
+    """Structured representation of a single git commit."""
+
+    sha: str
+    author: str
+    date: str
+    subject: str
+
+
 def get_head_commit(repo_dir: str = ".") -> str | None:
     """Return HEAD commit SHA if *repo_dir* is inside a git repository."""
     try:
@@ -216,3 +225,117 @@ def _is_within(path: Path, root: Path) -> bool:
         return True
     except ValueError:
         return False
+
+
+def get_commit_history(
+    repo_dir: str = ".",
+    since_commit: str | None = None,
+    max_commits: int = 50,
+) -> list[CommitRecord]:
+    """Return structured commit history since *since_commit* (or last N commits)."""
+    cmd = ["git", "log", "--pretty=format:%H|%an|%ai|%s", f"--max-count={max_commits}"]
+    if since_commit:
+        cmd.append(f"{since_commit}..HEAD")
+    try:
+        result = subprocess.run(
+            cmd, cwd=repo_dir, check=True, capture_output=True, text=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        logger.warning("Unable to retrieve commit history from %s", repo_dir)
+        return []
+
+    records: list[CommitRecord] = []
+    for line in result.stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        parts = line.split("|", 3)
+        if len(parts) < 4:
+            continue
+        records.append(CommitRecord(sha=parts[0], author=parts[1], date=parts[2], subject=parts[3]))
+    return records
+
+
+def get_commit_diff_summary(
+    repo_dir: str = ".",
+    since_commit: str | None = None,
+) -> str:
+    """Return a concise diffstat since *since_commit* (or for the latest commit)."""
+    if since_commit:
+        cmd = ["git", "diff", "--stat", f"{since_commit}..HEAD"]
+    else:
+        cmd = ["git", "diff", "--stat", "HEAD~1..HEAD"]
+    try:
+        result = subprocess.run(
+            cmd, cwd=repo_dir, check=True, capture_output=True, text=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        logger.warning("Unable to retrieve diff summary from %s", repo_dir)
+        return ""
+    return result.stdout.strip()
+
+
+def list_changed_files_in_extra_repo(
+    repo_path: str,
+    target_branch: str | None,
+    file_types: list[str],
+) -> list[str]:
+    """Return changed files in *repo_path* for multi-repo integration documentation.
+
+    Diffs against *target_branch* (PR mode) when provided, otherwise diffs
+    the latest commit (HEAD~1..HEAD). Filters by *file_types* extensions.
+
+    Args:
+        repo_path:     Absolute path to the additional repository root.
+        target_branch: Branch to diff against (e.g. 'main'). ``None`` → latest commit.
+        file_types:    Allowed file extensions (e.g. ['.py', '.yaml']).
+
+    Returns:
+        Sorted list of absolute file paths that changed in that repo.
+    """
+    repo_root = Path(repo_path).resolve()
+    if not repo_root.exists():
+        logger.warning("[GitTracker] Extra repo path does not exist: %s", repo_root)
+        return []
+
+    if target_branch:
+        try:
+            subprocess.run(
+                ["git", "fetch", "origin", target_branch],
+                cwd=str(repo_root),
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+        except OSError:
+            pass
+        diff_range = f"origin/{target_branch}...HEAD"
+    else:
+        diff_range = "HEAD~1..HEAD"
+
+    try:
+        result = subprocess.run(
+            ["git", "diff", "--name-only", diff_range],
+            cwd=str(repo_root),
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        logger.warning("[GitTracker] Unable to list changed files in extra repo: %s", repo_root)
+        return []
+
+    allowed_suffixes = set(file_types)
+    matched: list[str] = []
+    for rel_path in [line.strip() for line in result.stdout.splitlines() if line.strip()]:
+        abs_path = (repo_root / rel_path).resolve()
+        if allowed_suffixes and abs_path.suffix not in allowed_suffixes:
+            continue
+        if abs_path.exists():
+            matched.append(str(abs_path))
+
+    logger.info(
+        "[GitTracker] Extra repo '%s' — %d changed file(s) against '%s'",
+        repo_root.name, len(matched), target_branch or "HEAD~1",
+    )
+    return sorted(set(matched))

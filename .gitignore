@@ -23,6 +23,13 @@ research/*_scan_report.yaml
 testscripts/*_validation_report.yaml
 logs/*.log
 
+# Local config (machine-specific paths)
+config.local.json
+
+# Generated output docs
+output/energy_grid_monitor/
+output/solar_forecast_engine/
+
 # Editor
 .vscode/
 .idea/

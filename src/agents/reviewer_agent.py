@@ -100,16 +100,10 @@ def run(
     if unfilled:
         issues.append(f"Unfilled placeholder tokens in fields: {', '.join(unfilled)}")
 
-    # Check 5: Additional points file exists and has content
-    points_exists = build_result.additional_points_path.exists()
-    checks["additional_points_file_exists"] = points_exists
-    if not points_exists:
-        issues.append(f"Additional points file not found: {build_result.additional_points_path}")
-    else:
-        points_size = build_result.additional_points_path.stat().st_size
-        checks["additional_points_file_size_bytes"] = points_size
-        if points_size == 0:
-            issues.append(f"Additional points file is empty: {build_result.additional_points_path}")
+    # Check 5: Additional observations were generated and embedded in the document
+    checks["additional_points_generated"] = len(build_result.additional_points) > 0
+    if not build_result.additional_points:
+        issues.append("No additional observations were generated — document may be incomplete")
 
     passed = len(issues) == 0
     hash_status = "SKIPPED"
@@ -184,7 +178,7 @@ def _write_validation_report(
             "reviewed_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S UTC"),
             "agent": "reviewer",
             "document_path": str(build_result.doc_output_path),
-            "additional_points_path": str(build_result.additional_points_path),
+            "additional_points_count": len(build_result.additional_points),
             "version": build_result.new_version,
         },
         "verdict": "PASS" if passed else "FAIL",

@@ -1,0 +1,93 @@
+name: Analytics PR Documentation
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+    paths:
+      - "**/*.sql"
+      - "**/pipeline/*.json"
+      - "**/dataset/*.json"
+      - "**/linkedService/*.json"
+      - "**/linkedservice/*.json"
+      - "**/function_app.py"
+      - "**/function.json"
+      - "**/__init__.py"
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number to document"
+        required: true
+        type: number
+      repo_type:
+        description: "Force repo type (leave blank for auto-detect)"
+        required: false
+        default: "auto"
+        type: choice
+        options: [auto, snowflake, adf, azure_function_python, azure_function_typescript]
+
+jobs:
+  analytics-doc:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Determine PR number
+        id: pr
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "number=${{ github.event.inputs.pr_number }}" >> $GITHUB_OUTPUT
+          else
+            echo "number=${{ github.event.pull_request.number }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Generate analytics documentation
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          REPO="${{ github.repository }}"
+          PR="${{ steps.pr.outputs.number }}"
+          TYPE_ARG=""
+          if [ -n "${{ github.event.inputs.repo_type }}" ] && [ "${{ github.event.inputs.repo_type }}" != "auto" ]; then
+            TYPE_ARG="--type ${{ github.event.inputs.repo_type }}"
+          fi
+          python -m src.analytics_runner scan-pr \
+            --provider github \
+            --repo "$REPO" \
+            --pr "$PR" \
+            --output pr-${PR}-analytics-docs.md \
+            $TYPE_ARG
+
+      - name: Post documentation as PR comment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR="${{ steps.pr.outputs.number }}"
+          REPO="${{ github.repository }}"
+          if [ -f "pr-${PR}-analytics-docs.md" ]; then
+            gh pr comment "$PR" \
+              --repo "$REPO" \
+              --body-file "pr-${PR}-analytics-docs.md"
+          fi
+
+      - name: Upload docs artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: analytics-pr-docs
+          path: "pr-*-analytics-docs.md"
+          retention-days: 30

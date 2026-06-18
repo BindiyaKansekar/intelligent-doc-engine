@@ -25,13 +25,36 @@ from typing import Any
 
 import yaml
 
-from ..claude_engine import REQUIRED_SECTIONS
+from ..claude_engine import EXTENDED_SECTIONS, INTEGRATION_SECTIONS, REQUIRED_SECTIONS
 from .scanner_agent import ScanResult
 
 logger = logging.getLogger(__name__)
 
 _FUNCTIONAL_EXTENSIONS = {".py", ".json"}
 _DOC_ONLY_EXTENSIONS = {".md", ".yaml", ".yml", ".txt", ".rst"}
+
+# Maps each doc section to the file extensions whose changes should trigger its regeneration.
+# None means "always regenerate regardless of file type".
+_SECTION_FILE_TRIGGERS: dict[str, set[str] | None] = {
+    "OVERVIEW":                None,
+    "FILE_INVENTORY":          None,
+    "DATA_FLOWS":              {".py"},
+    "DEPENDENCIES":            {".py", ".txt", ".toml", ".cfg", ".cfg"},
+    "CONFIGURATION":           {".yaml", ".yml", ".json", ".env", ".toml", ".ini", ".cfg"},
+    "KNOWN_ISSUES":            {".py"},
+    "CHANGE_SUMMARY":          None,
+    "ARCHITECTURE_DIAGRAM":    {".py"},
+    "REQUIREMENT_TRACEABILITY": None,
+    # Extended sections — regenerate when .py files change (models/API may have changed)
+    "IMPLEMENTATION_DETAILS":  {".py"},
+    "DATA_MODEL":              {".py"},
+    "API_REFERENCE":           {".py"},
+    # Integration sections — always regenerate when new-integration flag is set
+    "INTEGRATION_OVERVIEW":    None,
+    "SEQUENCE_DIAGRAM":        None,
+    "API_FIELD_MAPPING":       None,
+    "ERROR_RETRY_BEHAVIOUR":   None,
+}
 
 
 @dataclass
@@ -45,6 +68,12 @@ class DocPlan:
     plan_path: Path
     commit_sha: str | None
     associated_document_path: str | None
+    is_first_run: bool = False
+    commit_messages: list[dict] | None = None
+    commit_diff_summary: str = ""
+    work_items: list[dict] | None = None
+    is_new_integration: bool = False
+    extra_repos: list[dict] | None = None
 
 
 def run(
@@ -72,8 +101,49 @@ def run(
     total_tracked = len(scan_result.current_hashes)
 
     bump_type, bump_rationale = _infer_bump_type(changed_files, total_tracked)
-    sections = list(REQUIRED_SECTIONS)
-    section_rationale = "All 6 sections regenerated (code or config files changed)"
+
+    changed_exts = {Path(f).suffix.lower() for f in changed_files}
+
+    if scan_result.is_first_run:
+        sections = list(REQUIRED_SECTIONS) + list(EXTENDED_SECTIONS)
+        section_rationale = (
+            "First run — no previous documentation exists. "
+            "All standard and extended sections generated fresh."
+        )
+        logger.info("[Analyzer] First run detected for '%s' — generating all sections", name)
+    else:
+        sections = _map_files_to_sections(changed_files)
+        # Add extended sections that are triggered by the changed file types
+        triggered_extended = [
+            s for s in EXTENDED_SECTIONS
+            if not _SECTION_FILE_TRIGGERS.get(s) or changed_exts & _SECTION_FILE_TRIGGERS[s]
+        ]
+        sections = list(dict.fromkeys(sections + triggered_extended))
+        skipped_required = sorted(set(REQUIRED_SECTIONS) - set(sections))
+        skipped_extended = sorted(set(EXTENDED_SECTIONS) - set(triggered_extended))
+        section_rationale = (
+            f"Subsequent run — {len(sections)} section(s) regenerated. "
+            + (f"Preserved from cache: {', '.join(skipped_required)}. " if skipped_required else "")
+            + (f"Extended sections skipped (no .py changes): {', '.join(skipped_extended)}." if skipped_extended else "")
+        )
+        logger.info(
+            "[Analyzer] Subsequent run for '%s' — regenerating: %s | preserving: %s",
+            name, sections, skipped_required,
+        )
+
+    if scan_result.is_new_integration:
+        # Append integration-specific sections, preserving order and avoiding duplicates
+        existing = set(sections)
+        for s in INTEGRATION_SECTIONS:
+            if s not in existing:
+                sections.append(s)
+        section_rationale += (
+            f" New-integration flag set — appending integration sections: "
+            f"{', '.join(INTEGRATION_SECTIONS)}."
+        )
+        logger.info(
+            "[Analyzer] New-integration flag — added sections: %s", INTEGRATION_SECTIONS
+        )
 
     plan_path = _write_doc_plan(
         name,
@@ -84,6 +154,9 @@ def run(
         section_rationale,
         scan_result.commit_sha,
         scan_result.associated_document_path,
+        scan_result.is_first_run,
+        scan_result.is_new_integration,
+        scan_result.extra_repos,
     )
 
     logger.info(
@@ -98,6 +171,12 @@ def run(
         plan_path=plan_path,
         commit_sha=scan_result.commit_sha,
         associated_document_path=scan_result.associated_document_path,
+        is_first_run=scan_result.is_first_run,
+        commit_messages=scan_result.commit_messages,
+        commit_diff_summary=scan_result.commit_diff_summary,
+        work_items=scan_result.work_items,
+        is_new_integration=scan_result.is_new_integration,
+        extra_repos=scan_result.extra_repos,
     )
 
 
@@ -133,6 +212,29 @@ def _infer_bump_type(changed_files: list[str], total_tracked: int) -> tuple[str,
     )
 
 
+def _map_files_to_sections(changed_files: list[str]) -> list[str]:
+    """Return the minimal set of doc sections that must be regenerated.
+
+    Sections whose trigger extensions overlap with the extensions present in
+    *changed_files* are included.  Sections with ``None`` triggers (OVERVIEW,
+    FILE_INVENTORY) are always included because any code change affects them.
+
+    Args:
+        changed_files: List of new + modified file paths from the scan.
+
+    Returns:
+        Ordered list of section keys (subset of :data:`REQUIRED_SECTIONS`).
+    """
+    changed_exts = {Path(f).suffix.lower() for f in changed_files}
+    selected: list[str] = []
+    for section in REQUIRED_SECTIONS:   # preserve canonical ordering
+        triggers = _SECTION_FILE_TRIGGERS.get(section)
+        if triggers is None or changed_exts & triggers:
+            selected.append(section)
+    # Guarantee at least one section is always selected
+    return selected if selected else list(REQUIRED_SECTIONS)
+
+
 def _write_doc_plan(
     name: str,
     changed_files: list[str],
@@ -142,6 +244,9 @@ def _write_doc_plan(
     section_rationale: str,
     commit_sha: str | None,
     associated_document_path: str | None,
+    is_first_run: bool = False,
+    is_new_integration: bool = False,
+    extra_repos: list[dict] | None = None,
 ) -> Path:
     """Serialize the documentation plan to plans/{name}_doc_plan.yaml.
 
@@ -166,8 +271,12 @@ def _write_doc_plan(
             "planned_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S UTC"),
             "agent": "analyzer",
             "source_scan": f"research/{name}_scan_report.yaml",
+            "is_first_run": is_first_run,
+            "is_new_integration": is_new_integration,
+            "extra_repo_count": len(extra_repos) if extra_repos else 0,
         },
         "sections_to_generate": sections,
+        "sections_preserved_from_cache": sorted(set(REQUIRED_SECTIONS) - set(sections)),
         "version_bump_type": bump_type,
         "changed_files": changed_files,
         "commit_sha": commit_sha,
