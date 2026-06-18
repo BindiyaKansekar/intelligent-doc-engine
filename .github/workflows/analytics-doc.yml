@@ -25,7 +25,7 @@ on:
         type: choice
         options: [auto, snowflake, adf, azure_function_python, azure_function_typescript]
   # Reusable workflow — called by other repos via:
-  #   uses: YOUR_ORG/intelligent-doc-engine/.github/workflows/analytics-doc.yml@main
+  #   uses: BindiyaKansekar/intelligent-doc-engine/.github/workflows/analytics-doc.yml@main
   workflow_call:
     inputs:
       pr_number:
@@ -61,9 +61,9 @@ jobs:
 
     steps:
       - name: Set up engine + Claude auth
-        uses: YOUR_ORG/intelligent-doc-engine/.github/actions/setup-doc-engine@main
+        uses: BindiyaKansekar/intelligent-doc-engine/.github/actions/setup-doc-engine@main
         with:
-          engine_repo: YOUR_ORG/intelligent-doc-engine
+          engine_repo: BindiyaKansekar/intelligent-doc-engine
           engine_ref: ${{ inputs.engine_ref || 'main' }}
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           claude_credentials: ${{ secrets.CLAUDE_CREDENTIALS }}

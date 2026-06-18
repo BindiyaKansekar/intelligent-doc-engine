@@ -7,7 +7,7 @@
 # SETUP (one-time, per-repo):
 #   1. Add ANTHROPIC_API_KEY as a GitHub secret in your repo:
 #        Settings → Secrets and variables → Actions → New repository secret
-#   2. Replace YOUR_ORG below with your GitHub organisation name.
+#   2. Replace BindiyaKansekar below with your GitHub organisation name.
 #   3. Adjust the `paths:` filter to match your project's file layout.
 #
 # WHAT THIS DOES:
@@ -71,10 +71,10 @@ jobs:
       # ── Install the doc engine ───────────────────────────────────────────
       # The engine is fetched directly from GitHub — no local checkout needed.
       # For a private engine repo use a PAT stored as ENGINE_TOKEN:
-      #   pip install "git+https://${{ secrets.ENGINE_TOKEN }}@github.com/YOUR_ORG/intelligent-doc-engine.git@main"
+      #   pip install "git+https://${{ secrets.ENGINE_TOKEN }}@github.com/BindiyaKansekar/intelligent-doc-engine.git@main"
       - name: Install intelligent-doc-engine
         run: |
-          pip install "git+https://github.com/YOUR_ORG/intelligent-doc-engine.git@main"
+          pip install "git+https://github.com/BindiyaKansekar/intelligent-doc-engine.git@main"
 
       # ── Resolve PR number ────────────────────────────────────────────────
       - name: Resolve PR number
@@ -132,7 +132,7 @@ jobs:
   # workflow logic (single source of truth in the engine repo).
   #
   # generate-docs-reusable:
-  #   uses: YOUR_ORG/intelligent-doc-engine/.github/workflows/analytics-doc.yml@main
+  #   uses: BindiyaKansekar/intelligent-doc-engine/.github/workflows/analytics-doc.yml@main
   #   with:
   #     pr_number: ${{ github.event.pull_request.number }}
   #     repo: ${{ github.repository }}
