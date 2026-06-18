@@ -55,6 +55,7 @@ on:
 jobs:
   analytics-doc:
     runs-on: ubuntu-latest
+    environment: CLAUDE_CREDENTIALS
     permissions:
       pull-requests: write
       contents: read
