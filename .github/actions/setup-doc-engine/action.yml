@@ -1,0 +1,88 @@
+name: "Setup intelligent-doc-engine"
+description: >
+  Installs intelligent-doc-engine (pip) and Claude Code CLI, then restores
+  authentication from either a Claude.ai session (CLAUDE_CREDENTIALS) or a
+  direct Anthropic API key (ANTHROPIC_API_KEY).
+
+  Authentication precedence (checked by the engine at runtime):
+    1. ANTHROPIC_API_KEY env var  → direct Anthropic API
+    2. claude CLI + credentials   → Claude.ai subscription (no API key needed)
+
+inputs:
+  engine_ref:
+    description: "Branch or tag of intelligent-doc-engine to install"
+    required: false
+    default: "main"
+  engine_repo:
+    description: "GitHub repo that hosts the engine (owner/repo)"
+    required: true
+  anthropic_api_key:
+    description: "Anthropic API key (optional — leave blank to use claude CLI)"
+    required: false
+    default: ""
+  claude_credentials:
+    description: >
+      Base64-encoded ~/.claude/.credentials.json from a machine with Claude Code
+      logged in. Allows the engine to call Claude without an API key.
+      Export with: base64 ~/.claude/.credentials.json | tr -d '\n'
+    required: false
+    default: ""
+  python_version:
+    description: "Python version to use"
+    required: false
+    default: "3.11"
+
+runs:
+  using: "composite"
+  steps:
+
+    # ── Python + engine ──────────────────────────────────────────────────────
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python_version }}
+
+    - name: Install intelligent-doc-engine
+      shell: bash
+      env:
+        ENGINE_REPO: ${{ inputs.engine_repo }}
+        ENGINE_REF: ${{ inputs.engine_ref }}
+      run: |
+        pip install "git+https://github.com/${ENGINE_REPO}.git@${ENGINE_REF}"
+
+    # ── Claude Code CLI (needed when no API key is provided) ─────────────────
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: "20"
+
+    - name: Install Claude Code CLI
+      shell: bash
+      run: npm install -g @anthropic-ai/claude-code
+
+    # ── Restore auth ─────────────────────────────────────────────────────────
+    # Tries CLAUDE_CREDENTIALS first, falls back to ANTHROPIC_API_KEY.
+    # If neither is provided the engine will error with a clear message.
+
+    - name: Restore Claude Code credentials
+      shell: bash
+      env:
+        CLAUDE_CREDENTIALS: ${{ inputs.claude_credentials }}
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
+      run: |
+        if [ -n "$CLAUDE_CREDENTIALS" ]; then
+          echo "Using Claude.ai session credentials (no API key required)."
+          mkdir -p ~/.claude
+          echo "$CLAUDE_CREDENTIALS" | base64 -d > ~/.claude/.credentials.json
+        elif [ -n "$ANTHROPIC_API_KEY" ]; then
+          echo "Using Anthropic API key."
+          echo "ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}" >> "$GITHUB_ENV"
+        else
+          echo "::error::Neither CLAUDE_CREDENTIALS nor ANTHROPIC_API_KEY is set."
+          echo "::error::Add one of these as a GitHub Actions secret:"
+          echo "::error::  CLAUDE_CREDENTIALS — base64 of ~/.claude/.credentials.json"
+          echo "::error::  ANTHROPIC_API_KEY  — from https://console.anthropic.com"
+          exit 1
+        fi

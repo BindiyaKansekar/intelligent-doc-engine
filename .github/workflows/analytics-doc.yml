@@ -48,7 +48,9 @@ on:
         type: string
     secrets:
       ANTHROPIC_API_KEY:
-        required: true
+        required: false
+      CLAUDE_CREDENTIALS:
+        required: false
 
 jobs:
   analytics-doc:
@@ -58,28 +60,13 @@ jobs:
       contents: read
 
     steps:
-      # Checkout is only needed when running inside the engine repo itself.
-      # In workflow_call mode the engine is installed via pip below.
-      - uses: actions/checkout@v4
-        if: github.event_name != 'workflow_call'
+      - name: Set up engine + Claude auth
+        uses: YOUR_ORG/intelligent-doc-engine/.github/actions/setup-doc-engine@main
         with:
-          fetch-depth: 0
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: pip
-
-      # Install from local source when running in the engine repo
-      - name: Install from source (engine repo)
-        if: github.event_name != 'workflow_call'
-        run: pip install -e ".[dev]"
-
-      # Install as a package when called from another repo
-      - name: Install intelligent-doc-engine (pip)
-        if: github.event_name == 'workflow_call'
-        run: |
-          pip install "git+https://github.com/${{ github.repository }}.git@${{ inputs.engine_ref }}"
+          engine_repo: YOUR_ORG/intelligent-doc-engine
+          engine_ref: ${{ inputs.engine_ref || 'main' }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_credentials: ${{ secrets.CLAUDE_CREDENTIALS }}
 
       - name: Determine PR number and target repo
         id: pr
@@ -98,7 +85,6 @@ jobs:
 
       - name: Generate analytics documentation
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           REPO="${{ steps.pr.outputs.repo }}"
@@ -121,11 +107,9 @@ jobs:
         run: |
           PR="${{ steps.pr.outputs.number }}"
           REPO="${{ steps.pr.outputs.repo }}"
-          if [ -f "pr-${PR}-analytics-docs.md" ]; then
-            gh pr comment "$PR" \
-              --repo "$REPO" \
-              --body-file "pr-${PR}-analytics-docs.md"
-          fi
+          [ -f "pr-${PR}-analytics-docs.md" ] && gh pr comment "$PR" \
+            --repo "$REPO" \
+            --body-file "pr-${PR}-analytics-docs.md"
 
       - name: Upload docs artifact
         uses: actions/upload-artifact@v4
