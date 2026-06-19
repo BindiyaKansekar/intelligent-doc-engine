@@ -64,7 +64,8 @@ def cli() -> None:
               show_default=True, help="Force repo type (skip auto-detection)")
 @click.option("--output",   default=None, help="Output file path (default: pr-<N>-docs.md)")
 @click.option("--model",    default=None, help="Override Claude model (e.g. claude-opus-4-8)")
-def scan_pr(provider, repo, org, project, pr, repo_type, output, model):
+@click.option("--also-html", default=None, help="Also write an HTML report with interactive lineage to this path")
+def scan_pr(provider, repo, org, project, pr, repo_type, output, model, also_html):
     """Scan a PR and generate Markdown documentation."""
     if model:
         os.environ["ANALYTICS_DOC_MODEL"] = model
@@ -94,6 +95,11 @@ def scan_pr(provider, repo, org, project, pr, repo_type, output, model):
         prog.update(t, description="Writing output...")
         _write_output(doc, output_path, pr_info.title, graph=graph)
 
+        if also_html:
+            from .analytics_html_writer import write_html
+            write_html(doc, also_html, title=pr_info.title, graph=graph)
+
+    html_line = f"\nHTML report: [cyan]{also_html}[/cyan]" if also_html else ""
     console.print(Panel(
         f"[green]Documentation generated[/green]\n\n"
         f"PR [cyan]#{pr_info.pr_number}[/cyan]: {pr_info.title}\n"
@@ -102,7 +108,7 @@ def scan_pr(provider, repo, org, project, pr, repo_type, output, model):
         f"(sql={detected.sql_file_count}, adf={detected.adf_pipeline_count}, "
         f"func={detected.function_count})\n"
         f"Files changed: [cyan]{len(pr_info.changed_files)}[/cyan]\n"
-        f"Output: [cyan]{output_path}[/cyan]",
+        f"Output: [cyan]{output_path}[/cyan]{html_line}",
         title="Intelligent Doc Engine — Analytics",
     ))
 

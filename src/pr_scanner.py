@@ -72,14 +72,29 @@ class GitHubScanner:
         )
 
     def _fetch_file_content(self, path: str, ref: str) -> str:
+        import logging, os
+        import requests as _requests
+        token = os.getenv("GH_TOKEN") or os.getenv("GITHUB_TOKEN", "")
         try:
-            return self._run_text(
-                ["gh", "api", f"repos/{self.repo}/contents/{path}",
-                 "-f", f"ref={ref}", "--jq", ".content"],
-                decode_base64=True,
-            )
-        except Exception:
-            return ""
+            url = f"https://api.github.com/repos/{self.repo}/contents/{path}"
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/vnd.github.v3.raw",
+            }
+            r = _requests.get(url, headers=headers, params={"ref": ref}, timeout=15)
+            r.raise_for_status()
+            return r.text
+        except Exception as exc:
+            logging.getLogger(__name__).warning("fetch %s@%s failed: %s", path, ref, exc)
+            # gh-cli fallback
+            try:
+                return self._run_text(
+                    ["gh", "api", f"repos/{self.repo}/contents/{path}?ref={ref}",
+                     "--jq", ".content"],
+                    decode_base64=True,
+                )
+            except Exception:
+                return ""
 
     def _run_json(self, cmd: list[str]) -> dict:
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
