@@ -12,7 +12,7 @@ inputs:
   engine_ref:
     description: "Branch or tag of intelligent-doc-engine to install"
     required: false
-    default: "main"
+    default: "master"
   engine_repo:
     description: "GitHub repo that hosts the engine (owner/repo)"
     required: true
