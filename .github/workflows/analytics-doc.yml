@@ -1,4 +1,4 @@
-name: Analytics PR Documentation
+﻿name: Analytics PR Documentation
 
 on:
   pull_request:
@@ -24,7 +24,7 @@ on:
         default: "auto"
         type: choice
         options: [auto, snowflake, adf, azure_function_python, azure_function_typescript]
-  # Reusable workflow — called by other repos via:
+  # Reusable workflow â€” called by other repos via:
   #   uses: BindiyaKansekar/intelligent-doc-engine/.github/workflows/analytics-doc.yml@main
   workflow_call:
     inputs:
@@ -62,7 +62,7 @@ jobs:
 
     steps:
       - name: Set up engine + Claude auth
-        uses: BindiyaKansekar/intelligent-doc-engine/.github/actions/setup-doc-engine@main
+        uses: BindiyaKansekar/intelligent-doc-engine/.github/actions/setup-doc-engine@master
         with:
           engine_repo: BindiyaKansekar/intelligent-doc-engine
           engine_ref: ${{ inputs.engine_ref || 'main' }}
