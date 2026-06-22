@@ -120,9 +120,10 @@ def scan_pr(provider, repo, org, project, pr, repo_type, output, model, also_htm
                                  "azure_function_python", "azure_function_typescript"]),
               show_default=True)
 @click.option("--output", default=None, help="Output file (default: docs.md)")
-@click.option("--model",  default=None, help="Override Claude model")
-@click.option("--title",  default="Directory Scan", help="Document title")
-def scan_dir(dir_path, repo_type, output, model, title):
+@click.option("--model",    default=None, help="Override Claude model")
+@click.option("--title",    default="Directory Scan", help="Document title")
+@click.option("--also-html", default=None, help="Also write an HTML report with interactive lineage to this path")
+def scan_dir(dir_path, repo_type, output, model, title, also_html):
     """Scan a local directory and generate documentation."""
     if model:
         os.environ["ANALYTICS_DOC_MODEL"] = model
@@ -139,13 +140,19 @@ def scan_dir(dir_path, repo_type, output, model, title):
         prog.update(t, description=f"Generating docs ({effective_type}, {len(changed_files)} files)...")
         doc, graph = _generate_doc(changed_files, effective_type, title, "", prog, t)
 
+        prog.update(t, description="Writing output...")
         _write_output(doc, output_path, title, graph=graph)
 
+        if also_html:
+            from .analytics_html_writer import write_html
+            write_html(doc, also_html, title=title, graph=graph)
+
+    html_line = f"\nHTML report: [cyan]{also_html}[/cyan]" if also_html else ""
     console.print(Panel(
         f"[green]Done[/green]\n"
         f"Type detected: [cyan]{effective_type}[/cyan]\n"
         f"Files scanned: [cyan]{len(changed_files)}[/cyan]\n"
-        f"Output: [cyan]{output_path}[/cyan]",
+        f"Output: [cyan]{output_path}[/cyan]{html_line}",
         title="Intelligent Doc Engine — Analytics",
     ))
 
