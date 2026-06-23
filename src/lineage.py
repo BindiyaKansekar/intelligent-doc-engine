@@ -84,9 +84,9 @@ class LineageGraph:
         }
         for src, tgt in self.edges:
             tl = self.node_layers.get(tgt, "unknown")
-            if tl == "gold":
+            if tl in ("gold", "mart"):
                 buckets["aggregation"].append((src, tgt))
-            elif tl == "silver":
+            elif tl in ("silver", "stage"):
                 buckets["transformation"].append((src, tgt))
             else:
                 buckets["ingestion"].append((src, tgt))
@@ -145,7 +145,7 @@ def _infer_fk_types(graph: LineageGraph) -> None:
     """
     # Step 2 & 3 — naming convention for gold layer
     for node in graph.node_layers:
-        if graph.node_layers.get(node) != "gold":
+        if graph.node_layers.get(node) not in ("gold", "mart"):
             continue
         name = node.split(".")[-1].upper()
         is_dim  = name.startswith("DIM_") or name.startswith("DIM")
@@ -248,11 +248,13 @@ def _build_mermaid(
         all_nodes.add(src)
         all_nodes.add(tgt)
 
-    layer_order = ["raw", "unknown", "silver", "gold"]
+    layer_order = ["raw", "unknown", "stage", "silver", "mart", "gold"]
     layer_labels = {
         "raw":     "RAW",
         "unknown": "Sources",
+        "stage":   "STAGE",
         "silver":  "SILVER",
+        "mart":    "MART",
         "gold":    "GOLD",
     }
 
@@ -294,11 +296,13 @@ def _build_mermaid(
             lines.append(f"    {sid} --> {tid}")
 
     lines.append('    classDef raw fill:#b3c6e7,stroke:#4472c4,color:#000')
+    lines.append('    classDef stage fill:#d9d9d9,stroke:#7f7f7f,color:#000')
     lines.append('    classDef silver fill:#d9d9d9,stroke:#7f7f7f,color:#000')
+    lines.append('    classDef mart fill:#ffe699,stroke:#c6a000,color:#000')
     lines.append('    classDef gold fill:#ffe699,stroke:#c6a000,color:#000')
     for node, nid in node_ids.items():
         layer = node_layers.get(node, "unknown")
-        if layer in ("raw", "silver", "gold"):
+        if layer in ("raw", "stage", "silver", "mart", "gold"):
             lines.append(f"    class {nid} {layer}")
 
     lines.append("```")
@@ -309,9 +313,13 @@ def _guess_layer(table_name: str) -> str:
     lower = table_name.lower()
     if "raw" in lower:
         return "raw"
+    if "stage" in lower or "stg" in lower:
+        return "stage"
     if "silver" in lower:
         return "silver"
-    if "gold" in lower or "dim_" in lower or "fact_" in lower or "mart" in lower:
+    if "mart" in lower or "dim_" in lower or "fact_" in lower:
+        return "mart"
+    if "gold" in lower:
         return "gold"
     return "unknown"
 

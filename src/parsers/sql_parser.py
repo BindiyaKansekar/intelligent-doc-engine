@@ -209,8 +209,12 @@ def _infer_layer(path: str, sql: str) -> str:
     lower = (path + " " + sql[:200]).lower()
     if "/raw/" in lower or "\\raw\\" in lower or "schema raw" in lower or "use schema raw" in lower:
         return "raw"
+    if "/stage/" in lower or "\\stage\\" in lower or "schema stage" in lower or "/stg/" in lower:
+        return "stage"
     if "/silver/" in lower or "\\silver\\" in lower or "schema silver" in lower:
         return "silver"
+    if "/mart/" in lower or "\\mart\\" in lower or "schema mart" in lower:
+        return "mart"
     if "/gold/" in lower or "\\gold\\" in lower or "schema gold" in lower:
         return "gold"
     return "unknown"

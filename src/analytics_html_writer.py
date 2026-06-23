@@ -28,11 +28,13 @@ _LINEAGE_SECTION_RE = re.compile(r"\n##\s+Data Lineage\b.*?(?=\n##\s|\n---|\Z)",
 
 _LAYER_COLORS = {
     "raw":     {"background": "#b3c6e7", "border": "#4472c4"},
+    "stage":   {"background": "#d9d9d9", "border": "#7f7f7f"},
     "silver":  {"background": "#d9d9d9", "border": "#7f7f7f"},
+    "mart":    {"background": "#ffe699", "border": "#c6a000"},
     "gold":    {"background": "#ffe699", "border": "#c6a000"},
     "unknown": {"background": "#f0f0f0", "border": "#aaaaaa"},
 }
-_LAYER_LEVEL  = {"unknown": 0, "raw": 1, "silver": 2, "gold": 3}
+_LAYER_LEVEL  = {"unknown": 0, "raw": 1, "stage": 2, "silver": 2, "mart": 3, "gold": 3}
 _MATCH_COLOR  = "#e74c3c"   # matched node border
 _ANC_COLOR    = "#2980b9"   # ancestor border
 _DESC_COLOR   = "#27ae60"   # descendant border
@@ -142,8 +144,8 @@ def _build_network(graph) -> tuple[str, str]:
   </div>
   <div class="net-legend">
     <span class="leg-raw">RAW</span>
-    <span class="leg-silver">SILVER</span>
-    <span class="leg-gold">GOLD</span>
+    <span class="leg-stage">STAGE</span>
+    <span class="leg-mart">MART</span>
     <span class="leg-unknown">Source</span>
     <span class="leg-sep"></span>
     <span class="leg-hint"><span class="dot dot-match"></span>matched</span>
@@ -455,7 +457,9 @@ function toggleFullscreen() {{
 // ── Node summary panel ────────────────────────────────────────────────────────
 const _LAYER_CSS = {{
     raw:     "background:#b3c6e7;border-color:#4472c4;color:#1a3a6e",
+    stage:   "background:#d9d9d9;border-color:#7f7f7f;color:#333",
     silver:  "background:#d9d9d9;border-color:#7f7f7f;color:#333",
+    mart:    "background:#ffe699;border-color:#c6a000;color:#5a4000",
     gold:    "background:#ffe699;border-color:#c6a000;color:#5a4000",
     unknown: "background:#f0f0f0;border-color:#aaa;color:#555",
 }};
@@ -678,7 +682,9 @@ tr:nth-child(even) td{{background:#f5f7ff}}
 }}
 .net-legend span{{padding:3px 9px;border-radius:10px;font-weight:500}}
 .leg-raw    {{background:#b3c6e7;border:1px solid #4472c4}}
+.leg-stage  {{background:#d9d9d9;border:1px solid #7f7f7f}}
 .leg-silver {{background:#d9d9d9;border:1px solid #7f7f7f}}
+.leg-mart   {{background:#ffe699;border:1px solid #c6a000}}
 .leg-gold   {{background:#ffe699;border:1px solid #c6a000}}
 .leg-unknown{{background:#f0f0f0;border:1px solid #aaa}}
 .leg-sep    {{flex:1}}

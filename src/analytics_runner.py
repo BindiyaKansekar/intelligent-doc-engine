@@ -38,7 +38,7 @@ from .parsers import repo_detector
 from .parsers.sql_parser import parse_sql, SQLFileInfo
 from .parsers.adf_parser import parse_file as parse_adf_file, ADFPipelineInfo, ADFDatasetInfo, ADFLinkedServiceInfo
 from .parsers.function_parser import parse_file as parse_function_file, FunctionInfo
-from . import analytics_doc_generator as doc_generator
+from . import analytics_template_generator as doc_generator
 from .lineage import build_graph
 from .analytics_docx_writer import write_docx
 
@@ -67,9 +67,6 @@ def cli() -> None:
 @click.option("--also-html", default=None, help="Also write an HTML report with interactive lineage to this path")
 def scan_pr(provider, repo, org, project, pr, repo_type, output, model, also_html):
     """Scan a PR and generate Markdown documentation."""
-    if model:
-        os.environ["ANALYTICS_DOC_MODEL"] = model
-
     output_path = output or f"pr-{pr}-docs.md"
 
     with Progress(SpinnerColumn(), TextColumn("{task.description}"), console=console) as prog:
