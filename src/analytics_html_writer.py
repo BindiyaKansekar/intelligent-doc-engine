@@ -118,6 +118,8 @@ def _build_network(graph) -> tuple[str, str]:
                    f"<div style='font:600 11px/1.8 Segoe UI,sans-serif;color:#555;margin-bottom:3px'>"
                    f"{len(pairs)} column(s):</div>"
                    f"<table style='border-spacing:0'>{''.join(rows)}{more}</table></div>")
+        if tip:
+            tip += "<div style='font:11px/1.6 Segoe UI,sans-serif;color:#888;margin-top:6px;border-top:1px solid #eee;padding-top:5px'>Click arrow to pin column mappings</div>"
         edges_data.append({"id": i, "from": src, "to": tgt, "arrows": "to",
                             "title": tip, "columns": pairs})
 
@@ -177,6 +179,17 @@ def _build_network(graph) -> tuple[str, str]:
         &nbsp;&middot;&nbsp;
         <span id="np-desc-total">0</span> descendants
       </div>
+    </div>
+    <div id="edge-panel" class="edge-panel hidden">
+      <div class="np-hdr">
+        <div class="np-title-wrap">
+          <span class="np-name" id="ep-title">Column Mappings</span>
+          <span class="np-full" id="ep-subtitle"></span>
+        </div>
+        <button class="np-close" onclick="closeEdgePanel()" title="Close">&#x2715;</button>
+      </div>
+      <div class="ep-stats" id="ep-stats"></div>
+      <div id="ep-columns" class="ep-col-wrap"></div>
     </div>
   </div>
 </section>"""
@@ -268,16 +281,22 @@ function _init() {{
     }});
 
     // Click a node → trace lineage + show summary panel
+    // Click an edge → show column mapping panel
     _net.on("click", p => {{
         if (p.nodes.length) {{
+            closeEdgePanel();
             const nd = _ND.find(n => n.id === p.nodes[0]);
             if (nd) {{
                 document.getElementById("node-filter").value = nd.label;
                 traceNode(nd.label);
                 showNodePanel(p.nodes[0]);
             }}
+        }} else if (p.edges.length) {{
+            closeNodePanel();
+            showEdgePanel(p.edges[0]);
         }} else {{
             closeNodePanel();
+            closeEdgePanel();
         }}
     }});
 
@@ -355,11 +374,66 @@ function traceNode(query) {{
     showToast(`${{matched.size}} match · ${{ancestors.size}} ancestor(s) · ${{descendants.size}} descendant(s)`);
 }}
 
+// ── Edge column-mapping panel ─────────────────────────────────────────────────
+function showEdgePanel(edgeId) {{
+    const edge = _ED.find(e => e.id === edgeId);
+    if (!edge) return;
+
+    const srcNd = _ND.find(n => n.id === edge.from);
+    const tgtNd = _ND.find(n => n.id === edge.to);
+    const srcLabel = srcNd ? srcNd.label : edge.from.split(".").pop();
+    const tgtLabel = tgtNd ? tgtNd.label : edge.to.split(".").pop();
+
+    document.getElementById("ep-title").textContent = srcLabel + " → " + tgtLabel;
+    const sub = document.getElementById("ep-subtitle");
+    if (edge.from !== srcLabel || edge.to !== tgtLabel) {{
+        sub.textContent = edge.from + " → " + edge.to;
+        sub.style.display = "block";
+    }} else {{
+        sub.style.display = "none";
+    }}
+
+    const pairs = edge.columns || [];
+    document.getElementById("ep-stats").textContent =
+        pairs.length ? pairs.length + " column mapping" + (pairs.length !== 1 ? "s" : "") : "No column mappings";
+
+    let html = "";
+    if (pairs.length) {{
+        html = '<table class="ep-col-table">';
+        pairs.forEach(function(p) {{
+            const sc = p[0], tc = p[1];
+            const srcCell = sc
+                ? '<td class="ep-src">' + sc + '</td>'
+                : '<td class="ep-src ep-expr">expression</td>';
+            html += "<tr>" + srcCell + '<td class="ep-arr">→</td><td class="ep-tgt">' + tc + "</td></tr>";
+        }});
+        html += "</table>";
+    }} else {{
+        html = '<div style="color:#aaa;font-style:italic;font-size:.8rem;padding:4px 0">No column-level mapping available.</div>';
+    }}
+    document.getElementById("ep-columns").innerHTML = html;
+
+    // Highlight clicked edge, dim others
+    _edges.update(_ED.map(e => ({{
+        id: e.id,
+        color: e.id === edgeId ? {{ color: "#2E74B5", opacity: 1.0 }} : {{ color: "#9aabbd", opacity: 0.25 }},
+        width: e.id === edgeId ? 3 : 1.5,
+    }})));
+
+    document.getElementById("edge-panel").classList.remove("hidden");
+}}
+
+function closeEdgePanel() {{
+    document.getElementById("edge-panel").classList.add("hidden");
+    _edges.update(_ED.map(e => ({{ id: e.id, color: {{ color: "#9aabbd", opacity: 0.9 }}, width: 1.5 }})));
+}}
+
 // ── Reset ─────────────────────────────────────────────────────────────────────
 function resetFilter() {{
     document.getElementById("node-filter").value = "";
     _nodes.update(_ND.map(n => ({{ id: n.id, color: _ORIG[n.id], borderWidth: 1 }})));
     _edges.update(_ED.map(e => ({{ id: e.id, color: {{ color: "#9aabbd", opacity: 0.9 }}, width: 1.5 }})));
+    closeEdgePanel();
     fitAll();
     hideToast();
 }}
@@ -736,6 +810,29 @@ tr:nth-child(even) td{{background:#f5f7ff}}
   padding:7px 12px 9px;border-top:1px solid #f0f2f6;
   font-size:.78rem;color:#777;text-align:center;background:#f8f9fc
 }}
+
+/* ── Edge column-mapping panel ───────────────────── */
+.edge-panel{{
+  position:absolute;top:12px;right:12px;
+  width:320px;
+  background:#fff;border:1px solid #d0d7e3;border-radius:10px;
+  border-top:3px solid #2E74B5;
+  box-shadow:0 6px 20px rgba(0,0,0,.13);
+  z-index:20;font-size:.855rem;overflow:hidden;
+  transition:opacity .18s,transform .18s
+}}
+.edge-panel.hidden{{opacity:0;pointer-events:none;transform:translateY(-6px)}}
+.ep-stats{{
+  padding:5px 12px;font-size:.76rem;color:#2E74B5;font-weight:600;
+  background:#f0f5ff;border-bottom:1px solid #dce8f8
+}}
+.ep-col-wrap{{max-height:300px;overflow-y:auto;padding:8px 12px}}
+.ep-col-table{{border-spacing:0;width:100%;font-size:.78rem;font-family:"Cascadia Code","Consolas",monospace}}
+.ep-col-table td{{padding:2px 4px;vertical-align:middle;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:120px}}
+.ep-src{{color:#2E74B5}}
+.ep-arr{{color:#bbb;padding:0 5px;font-family:sans-serif;font-size:.9em}}
+.ep-tgt{{color:#1a2a40}}
+.ep-expr{{color:#aaa;font-style:italic;font-family:"Segoe UI",sans-serif}}
 </style>
 </head>
 <body>
