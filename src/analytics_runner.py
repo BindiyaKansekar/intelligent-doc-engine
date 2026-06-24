@@ -87,8 +87,8 @@ def scan_pr(provider, repo, org, project, pr, repo_type, output, model, also_htm
         effective_type = repo_type if repo_type != "auto" else detected.primary_type
 
         prog.update(t, description=f"Parsing {len(pr_info.changed_files)} files ({effective_type})...")
-        doc, graph = _generate_doc(pr_info.changed_files, effective_type,
-                                   pr_info.title, pr_info.description, prog, t)
+        doc, graph, sql_infos = _generate_doc(pr_info.changed_files, effective_type,
+                                              pr_info.title, pr_info.description, prog, t)
 
         prog.update(t, description="Writing output...")
         _write_output(doc, output_path, pr_info.title, graph=graph)
@@ -98,8 +98,13 @@ def scan_pr(provider, repo, org, project, pr, repo_type, output, model, also_htm
             write_html(doc, also_html, title=pr_info.title, graph=graph)
 
         if also_docx:
-            from .analytics_docx_writer import write_docx
-            write_docx(doc, also_docx, title=pr_info.title)
+            if sql_infos is not None:
+                from .analytics_docx_writer import write_sql_docx
+                write_sql_docx(sql_infos, graph, also_docx,
+                               title=pr_info.title, pr_description=pr_info.description)
+            else:
+                from .analytics_docx_writer import write_docx
+                write_docx(doc, also_docx, title=pr_info.title)
 
     html_line = f"\nHTML report: [cyan]{also_html}[/cyan]" if also_html else ""
     docx_line = f"\nWord document: [cyan]{also_docx}[/cyan]" if also_docx else ""
@@ -139,7 +144,7 @@ def scan_dir(dir_path, repo_type, output, model, title, also_html, also_docx):
         effective_type = repo_type if repo_type != "auto" else detected.primary_type
 
         prog.update(t, description=f"Generating docs ({effective_type}, {len(changed_files)} files)...")
-        doc, graph = _generate_doc(changed_files, effective_type, title, "", prog, t)
+        doc, graph, sql_infos = _generate_doc(changed_files, effective_type, title, "", prog, t)
 
         prog.update(t, description="Writing output...")
         _write_output(doc, output_path, title, graph=graph)
@@ -149,8 +154,12 @@ def scan_dir(dir_path, repo_type, output, model, title, also_html, also_docx):
             write_html(doc, also_html, title=title, graph=graph)
 
         if also_docx:
-            from .analytics_docx_writer import write_docx
-            write_docx(doc, also_docx, title=title)
+            if sql_infos is not None:
+                from .analytics_docx_writer import write_sql_docx
+                write_sql_docx(sql_infos, graph, also_docx, title=title, scope="Full repository")
+            else:
+                from .analytics_docx_writer import write_docx
+                write_docx(doc, also_docx, title=title)
 
     html_line = f"\nHTML report: [cyan]{also_html}[/cyan]" if also_html else ""
     docx_line = f"\nWord document: [cyan]{also_docx}[/cyan]" if also_docx else ""
@@ -185,8 +194,8 @@ def _generate_doc(
     description: str,
     prog=None,
     task=None,
-) -> tuple[str, object]:
-    """Return (markdown, graph_or_None). Graph is provided for snowflake/mixed-sql types."""
+) -> tuple[str, object, object]:
+    """Return (markdown, graph_or_None, sql_infos_or_None)."""
     def update(msg: str):
         if prog and task is not None:
             prog.update(task, description=msg)
@@ -196,24 +205,25 @@ def _generate_doc(
         sql_infos = _parse_sql_files(changed_files)
         update("Building lineage graph...")
         graph = build_graph(sql_infos)
-        update("Generating documentation with Claude...")
-        return doc_generator.document_sql_pr(sql_infos, title, description, graph), graph
+        update("Generating documentation...")
+        return doc_generator.document_sql_pr(sql_infos, title, description, graph), graph, sql_infos
 
     if effective_type == "adf":
         update("Parsing ADF artefacts...")
         pipelines, datasets, linked_services = _parse_adf_files(changed_files)
-        update("Generating documentation with Claude...")
-        return doc_generator.document_adf_pr(pipelines, datasets, linked_services, title, description), None
+        update("Generating documentation...")
+        return doc_generator.document_adf_pr(pipelines, datasets, linked_services, title, description), None, None
 
     if effective_type in ("azure_function_python", "azure_function_typescript"):
         update("Parsing Azure Function files...")
         functions = _parse_function_files(changed_files)
-        update("Generating documentation with Claude...")
-        return doc_generator.document_function_pr(functions, title, description), None
+        update("Generating documentation...")
+        return doc_generator.document_function_pr(functions, title, description), None, None
 
     if effective_type == "mixed":
         parts = []
         mixed_graph = None
+        mixed_sql_infos = None
         sql_files = [f for f in changed_files if f.path.lower().endswith(".sql")]
         adf_files = [f for f in changed_files
                      if any(x in f.path.lower() for x in ["pipeline/", "dataset/", "linkedservice/"])]
@@ -221,9 +231,9 @@ def _generate_doc(
                       if "function.json" in f.path.lower() or f.path.endswith((".py", ".ts"))]
 
         if sql_files:
-            sql_infos = _parse_sql_files(sql_files)
-            mixed_graph = build_graph(sql_infos)
-            parts.append(doc_generator.document_sql_pr(sql_infos, f"{title} (SQL)", description, mixed_graph))
+            mixed_sql_infos = _parse_sql_files(sql_files)
+            mixed_graph = build_graph(mixed_sql_infos)
+            parts.append(doc_generator.document_sql_pr(mixed_sql_infos, f"{title} (SQL)", description, mixed_graph))
         if adf_files:
             p, d, ls = _parse_adf_files(adf_files)
             parts.append(doc_generator.document_adf_pr(p, d, ls, f"{title} (ADF)", description))
@@ -232,10 +242,10 @@ def _generate_doc(
             if funcs:
                 parts.append(doc_generator.document_function_pr(funcs, f"{title} (Functions)", description))
 
-        return ("\n\n---\n\n".join(parts) if parts else "No supported files found."), mixed_graph
+        return ("\n\n---\n\n".join(parts) if parts else "No supported files found."), mixed_graph, mixed_sql_infos
 
     all_diff = "\n".join(f.diff or f.content[:500] for f in changed_files[:10])
-    return doc_generator.document_generic_pr(all_diff, title, description), None
+    return doc_generator.document_generic_pr(all_diff, title, description), None, None
 
 
 # ── Per-type file parsers ────────────────────────────────────────────────────
