@@ -65,7 +65,8 @@ def cli() -> None:
 @click.option("--output",   default=None, help="Output file path (default: pr-<N>-docs.md)")
 @click.option("--model",    default=None, help="Override Claude model (e.g. claude-opus-4-8)")
 @click.option("--also-html", default=None, help="Also write an HTML report with interactive lineage to this path")
-def scan_pr(provider, repo, org, project, pr, repo_type, output, model, also_html):
+@click.option("--also-docx", default=None, help="Also write a Word (.docx) document to this path")
+def scan_pr(provider, repo, org, project, pr, repo_type, output, model, also_html, also_docx):
     """Scan a PR and generate Markdown documentation."""
     output_path = output or f"pr-{pr}-docs.md"
 
@@ -96,7 +97,12 @@ def scan_pr(provider, repo, org, project, pr, repo_type, output, model, also_htm
             from .analytics_html_writer import write_html
             write_html(doc, also_html, title=pr_info.title, graph=graph)
 
+        if also_docx:
+            from .analytics_docx_writer import write_docx
+            write_docx(doc, also_docx, title=pr_info.title)
+
     html_line = f"\nHTML report: [cyan]{also_html}[/cyan]" if also_html else ""
+    docx_line = f"\nWord document: [cyan]{also_docx}[/cyan]" if also_docx else ""
     console.print(Panel(
         f"[green]Documentation generated[/green]\n\n"
         f"PR [cyan]#{pr_info.pr_number}[/cyan]: {pr_info.title}\n"
@@ -105,7 +111,7 @@ def scan_pr(provider, repo, org, project, pr, repo_type, output, model, also_htm
         f"(sql={detected.sql_file_count}, adf={detected.adf_pipeline_count}, "
         f"func={detected.function_count})\n"
         f"Files changed: [cyan]{len(pr_info.changed_files)}[/cyan]\n"
-        f"Output: [cyan]{output_path}[/cyan]{html_line}",
+        f"Output: [cyan]{output_path}[/cyan]{html_line}{docx_line}",
         title="Intelligent Doc Engine — Analytics",
     ))
 
@@ -120,11 +126,9 @@ def scan_pr(provider, repo, org, project, pr, repo_type, output, model, also_htm
 @click.option("--model",    default=None, help="Override Claude model")
 @click.option("--title",    default="Directory Scan", help="Document title")
 @click.option("--also-html", default=None, help="Also write an HTML report with interactive lineage to this path")
-def scan_dir(dir_path, repo_type, output, model, title, also_html):
+@click.option("--also-docx", default=None, help="Also write a Word (.docx) document to this path")
+def scan_dir(dir_path, repo_type, output, model, title, also_html, also_docx):
     """Scan a local directory and generate documentation."""
-    if model:
-        os.environ["ANALYTICS_DOC_MODEL"] = model
-
     output_path = output or "docs.md"
 
     with Progress(SpinnerColumn(), TextColumn("{task.description}"), console=console) as prog:
@@ -144,12 +148,17 @@ def scan_dir(dir_path, repo_type, output, model, title, also_html):
             from .analytics_html_writer import write_html
             write_html(doc, also_html, title=title, graph=graph)
 
+        if also_docx:
+            from .analytics_docx_writer import write_docx
+            write_docx(doc, also_docx, title=title)
+
     html_line = f"\nHTML report: [cyan]{also_html}[/cyan]" if also_html else ""
+    docx_line = f"\nWord document: [cyan]{also_docx}[/cyan]" if also_docx else ""
     console.print(Panel(
         f"[green]Done[/green]\n"
         f"Type detected: [cyan]{effective_type}[/cyan]\n"
         f"Files scanned: [cyan]{len(changed_files)}[/cyan]\n"
-        f"Output: [cyan]{output_path}[/cyan]{html_line}",
+        f"Output: [cyan]{output_path}[/cyan]{html_line}{docx_line}",
         title="Intelligent Doc Engine — Analytics",
     ))
 
