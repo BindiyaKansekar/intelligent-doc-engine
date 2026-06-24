@@ -64,13 +64,6 @@ _LAYER_LABEL = {
     "mart": "MART", "gold": "GOLD/MART", "unknown": "Source",
 }
 
-# Sections grouped as RAW / SILVER / GOLD-MART
-_SECTION_GROUPS = [
-    (["raw"],          "Layer Summary (RAW)",      "raw"),
-    (["stage", "silver"], "Layer Summary (SILVER)", "silver"),
-    (["mart", "gold"], "Layer Summary (GOLD/MART)", "gold"),
-]
-
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Public API
@@ -84,7 +77,7 @@ def write_sql_docx(
     pr_description: str = "",
     scope: str = "PR changes only",
 ) -> Path:
-    """Build a 12-section structured .docx from parsed SQL + lineage data."""
+    """Build a concise 7-section structured .docx from parsed SQL + lineage data."""
     doc = Document()
     _setup_styles(doc)
 
@@ -96,49 +89,31 @@ def write_sql_docx(
     _h1(doc, "Table of Contents")
     _add_toc_field(doc)
 
-    # ── 3. Repository Overview ─────────────────────────────────────────────
+    # ── 3. Overview ────────────────────────────────────────────────────────
     doc.add_page_break()
-    _h1(doc, "Repository Overview")
+    _h1(doc, "Overview")
     _add_overview(doc, sql_infos, pr_description, scope)
 
-    # ── 4. Data Architecture ───────────────────────────────────────────────
-    _h1(doc, "Data Architecture")
-    _add_architecture(doc, sql_infos, graph)
-
-    # ── 5–7. Layer Summaries ───────────────────────────────────────────────
-    by_layer: dict[str, list] = defaultdict(list)
-    for f in sql_infos:
-        by_layer[f.layer].append(f)
-
-    for layer_keys, section_name, color_key in _SECTION_GROUPS:
-        files = [f for k in layer_keys for f in by_layer.get(k, [])]
-        if files:
-            _add_layer_summary(doc, section_name, files, color_key)
-
-    # ── 8. Object Inventory ────────────────────────────────────────────────
+    # ── 4. Object Inventory (layer-grouped, colour-coded) ──────────────────
     if sql_infos:
         _h1(doc, "Object Inventory")
         _add_object_inventory(doc, sql_infos)
 
-    # ── 9. Data Lineage ────────────────────────────────────────────────────
+    # ── 5. Data Lineage ────────────────────────────────────────────────────
     if graph and getattr(graph, "edges", None):
         _h1(doc, "Data Lineage")
         _add_lineage_diagram(doc, graph, title)
 
-    # ── 10. Column-Level Lineage ───────────────────────────────────────────
+    # ── 6. Column-Level Lineage ────────────────────────────────────────────
     if graph and getattr(graph, "edge_columns", None):
         _h1(doc, "Column-Level Lineage")
         _add_column_lineage(doc, graph)
 
-    # ── 11. Column Inventory ───────────────────────────────────────────────
-    files_with_cols = [f for f in sql_infos if getattr(f, "columns", None)]
-    if files_with_cols:
-        _h1(doc, "Column Inventory")
-        _add_column_inventory(doc, files_with_cols)
-
-    # ── 12. Change Summary ─────────────────────────────────────────────────
-    _h1(doc, "Change Summary")
-    _add_change_summary(doc, sql_infos, scope)
+    # ── 7. Key Columns ─────────────────────────────────────────────────────
+    files_with_pks = [f for f in sql_infos if getattr(f, "pk_columns", None)]
+    if files_with_pks:
+        _h1(doc, "Key Columns")
+        _add_key_columns(doc, files_with_pks)
 
     out = Path(output_path)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -231,103 +206,62 @@ def _add_toc_field(doc: Document) -> None:
 
 
 def _add_overview(doc: Document, sql_infos: list, description: str, scope: str) -> None:
+    by_layer: dict[str, list] = defaultdict(list)
+    for f in sql_infos:
+        by_layer[f.layer].append(f)
+
     layers_present = sorted(
         {f.layer for f in sql_infos if f.layer != "unknown"},
         key=lambda l: _LAYER_ORDER.index(l) if l in _LAYER_ORDER else 99,
     )
     obj_types = sorted({f.object_type for f in sql_infos if f.object_type != "UNKNOWN"})
-    total_cols = sum(len(getattr(f, "columns", [])) for f in sql_infos)
+    flow = "  →  ".join(_LAYER_LABEL.get(l, l.upper()) for l in layers_present) or "N/A"
 
     rows = [
-        ("Total SQL files", str(len(sql_infos))),
-        ("Layers present", "  →  ".join(_LAYER_LABEL.get(l, l.upper()) for l in layers_present) or "N/A"),
+        ("Scope", scope),
+        ("SQL files", str(len(sql_infos))),
+        ("Data flow", flow),
         ("Object types", ", ".join(obj_types) or "N/A"),
-        ("Total columns tracked", str(total_cols)),
-        ("Documentation scope", scope),
     ]
-    _kv_table(doc, rows)
-
     if description:
-        doc.add_paragraph()
-        p = doc.add_paragraph(description)
-        p.runs[0].font.size = Pt(10)
-
-
-def _add_architecture(doc: Document, sql_infos: list, graph) -> None:
-    by_layer: dict[str, list] = defaultdict(list)
-    for f in sql_infos:
-        by_layer[f.layer].append(f)
-
-    layers_present = [l for l in _LAYER_ORDER if by_layer.get(l)]
-    flow = "  →  ".join(_LAYER_LABEL.get(l, l.upper()) for l in layers_present)
-    p = doc.add_paragraph()
-    r = p.add_run(f"Data flow:  {flow}")
-    r.bold = True
-    r.font.size = Pt(11)
-    r.font.color.rgb = _NAVY
-
+        rows.append(("Description", description[:200]))
+    _kv_table(doc, rows)
     doc.add_paragraph()
 
-    desc_rows = []
-    for layer in layers_present:
-        files = by_layer[layer]
-        label = _LAYER_LABEL.get(layer, layer.upper())
-        src_set: set[str] = set()
-        for f in files:
-            src_set.update(getattr(f, "sources", []))
-        desc = (
-            f"{len(files)} object(s). "
-            + (f"Reads from: {', '.join(sorted(src_set)[:5])}." if src_set else "Primary ingestion layer.")
-        )
-        desc_rows.append((label, desc))
-
-    _kv_table(doc, desc_rows, key_width=Inches(1.2))
-    doc.add_paragraph()
-
-
-def _add_layer_summary(doc: Document, section_name: str, files: list, color_key: str) -> None:
-    _h1(doc, section_name)
-
-    dark_hex = _LAYER_DARK_HEX.get(color_key, "595959")
-    light_hex = _LAYER_LIGHT_HEX.get(color_key, "F2F2F2")
-
-    headers = ["File", "Object Name", "Type", "Columns", "Load Strategy", "Source Tables"]
-    col_rows = []
-    for f in files:
-        fname = f.path.replace("\\", "/").split("/")[-1]
-        obj = getattr(f, "primary_target", None) or (f.targets[0] if getattr(f, "targets", None) else None)
-        obj_name = str(obj) if obj else getattr(f, "object_name", None) or "—"
-        ncols = len(getattr(f, "columns", []))
-        strategy = getattr(f, "load_strategy", None) or "—"
-        sources = getattr(f, "sources", [])
-        src_str = ", ".join(str(s).split(".")[-1] for s in sources[:4])
-        if len(sources) > 4:
-            src_str += f" +{len(sources) - 4} more"
-        col_rows.append([fname, obj_name, f.object_type, str(ncols), strategy, src_str or "—"])
-
-    _styled_table(doc, headers, col_rows, header_hex=dark_hex, alt_hex=light_hex)
-    doc.add_paragraph()
 
 
 def _add_object_inventory(doc: Document, sql_infos: list) -> None:
-    headers = ["Layer", "Object Name", "Type", "File", "Columns", "Load Strategy"]
-    rows = []
+    """Single comprehensive table grouped by layer with colour-coded header bands."""
+    headers = ["Layer", "Object Name", "Type", "Columns", "Load Strategy", "Source Tables"]
+
     for layer in _LAYER_ORDER:
-        for f in [x for x in sql_infos if x.layer == layer]:
+        files = [f for f in sql_infos if f.layer == layer]
+        if not files:
+            continue
+
+        dark_hex = _LAYER_DARK_HEX.get(layer, "595959")
+        light_hex = _LAYER_LIGHT_HEX.get(layer, "F2F2F2")
+        label = _LAYER_LABEL.get(layer, layer.upper())
+
+        rows = []
+        for f in files:
             obj = getattr(f, "primary_target", None) or (f.targets[0] if getattr(f, "targets", None) else None)
             obj_name = str(obj) if obj else getattr(f, "object_name", None) or "—"
-            fname = f.path.replace("\\", "/").split("/")[-1]
+            sources = getattr(f, "sources", [])
+            src_str = ", ".join(str(s).split(".")[-1] for s in sources[:4])
+            if len(sources) > 4:
+                src_str += f" +{len(sources) - 4}"
             rows.append([
-                _LAYER_LABEL.get(layer, layer.upper()),
+                label,
                 obj_name,
                 f.object_type,
-                fname,
                 str(len(getattr(f, "columns", []))),
                 getattr(f, "load_strategy", None) or "—",
+                src_str or "—",
             ])
 
-    _styled_table(doc, headers, rows, header_hex=_NAVY_HEX, alt_hex="EBF0F7")
-    doc.add_paragraph()
+        _styled_table(doc, headers, rows, header_hex=dark_hex, alt_hex=light_hex)
+        doc.add_paragraph()
 
 
 def _add_lineage_diagram(doc: Document, graph, title: str) -> None:
@@ -369,68 +303,25 @@ def _add_column_lineage(doc: Document, graph) -> None:
         doc.add_paragraph()
 
 
-def _add_column_inventory(doc: Document, sql_infos: list) -> None:
-    for layer in _LAYER_ORDER:
-        layer_files = [f for f in sql_infos if f.layer == layer and getattr(f, "columns", None)]
-        if not layer_files:
-            continue
-
-        _h2(doc, _LAYER_LABEL.get(layer, layer.upper()))
-        dark_hex = _LAYER_DARK_HEX.get(layer, "595959")
-        light_hex = _LAYER_LIGHT_HEX.get(layer, "F2F2F2")
-
-        for f in layer_files:
-            obj = getattr(f, "primary_target", None) or (f.targets[0] if getattr(f, "targets", None) else None)
-            obj_name = str(obj) if obj else getattr(f, "object_name", None) or f.path.split("/")[-1]
-
-            _h3(doc, obj_name)
-            pk_set = {c.upper() for c in getattr(f, "pk_columns", [])}
-            rows = [
-                [c, "PK" if c.upper() in pk_set else ""]
-                for c in f.columns
-            ]
-            _styled_table(doc, ["Column", "Key"], rows, header_hex=dark_hex, alt_hex=light_hex)
-            doc.add_paragraph()
-
-
-def _add_change_summary(doc: Document, sql_infos: list, scope: str) -> None:
-    by_layer: dict[str, list] = defaultdict(list)
-    for f in sql_infos:
-        by_layer[f.layer].append(f)
-
-    p = doc.add_paragraph()
-    r = p.add_run(f"Scope: {scope}  ·  {len(sql_infos)} file(s) processed")
-    r.font.size = Pt(10)
-    r.font.color.rgb = _SLATE
-    doc.add_paragraph()
-
-    headers = ["Layer", "File", "Object", "Type", "Columns", "Sources"]
+def _add_key_columns(doc: Document, sql_infos: list) -> None:
+    """One compact table: object, layer, PK columns only."""
+    headers = ["Layer", "Object", "Primary Key Columns"]
     rows = []
     for layer in _LAYER_ORDER:
-        for f in by_layer.get(layer, []):
+        for f in [x for x in sql_infos if x.layer == layer]:
+            pk_cols = getattr(f, "pk_columns", [])
+            if not pk_cols:
+                continue
             obj = getattr(f, "primary_target", None) or (f.targets[0] if getattr(f, "targets", None) else None)
             obj_name = str(obj) if obj else getattr(f, "object_name", None) or "—"
-            fname = f.path.replace("\\", "/").split("/")[-1]
-            sources = getattr(f, "sources", [])
             rows.append([
                 _LAYER_LABEL.get(layer, layer.upper()),
-                fname,
                 obj_name,
-                f.object_type,
-                str(len(getattr(f, "columns", []))),
-                str(len(sources)),
+                ", ".join(pk_cols),
             ])
-
     if rows:
         _styled_table(doc, headers, rows, header_hex=_NAVY_HEX, alt_hex="EBF0F7")
-
-    doc.add_paragraph()
-    footer = doc.add_paragraph(
-        f"Generated by Intelligent Doc Engine  ·  {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}"
-    )
-    footer.runs[0].font.size = Pt(9)
-    footer.runs[0].font.italic = True
-    footer.runs[0].font.color.rgb = _SLATE
+        doc.add_paragraph()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
