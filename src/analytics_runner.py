@@ -99,9 +99,14 @@ def scan_pr(provider, repo, org, project, pr, repo_type, output, model, also_htm
 
         if also_docx:
             if sql_infos is not None:
-                from .analytics_docx_writer import write_sql_docx
-                write_sql_docx(sql_infos, graph, also_docx,
-                               title=pr_info.title, pr_description=pr_info.description)
+                try:
+                    from .analytics_docx_writer import write_sql_docx
+                    write_sql_docx(sql_infos, graph, also_docx,
+                                   title=pr_info.title, pr_description=pr_info.description)
+                except Exception as e:
+                    console.print(f"[yellow]Structured docx failed ({e}), falling back to markdown writer[/yellow]")
+                    from .analytics_docx_writer import write_docx
+                    write_docx(doc, also_docx, title=pr_info.title)
             else:
                 from .analytics_docx_writer import write_docx
                 write_docx(doc, also_docx, title=pr_info.title)
@@ -155,8 +160,13 @@ def scan_dir(dir_path, repo_type, output, model, title, also_html, also_docx):
 
         if also_docx:
             if sql_infos is not None:
-                from .analytics_docx_writer import write_sql_docx
-                write_sql_docx(sql_infos, graph, also_docx, title=title, scope="Full repository")
+                try:
+                    from .analytics_docx_writer import write_sql_docx
+                    write_sql_docx(sql_infos, graph, also_docx, title=title, scope="Full repository")
+                except Exception as e:
+                    console.print(f"[yellow]Structured docx failed ({e}), falling back to markdown writer[/yellow]")
+                    from .analytics_docx_writer import write_docx
+                    write_docx(doc, also_docx, title=title)
             else:
                 from .analytics_docx_writer import write_docx
                 write_docx(doc, also_docx, title=title)

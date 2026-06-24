@@ -460,6 +460,8 @@ def _kv_table(
     rows: list[tuple[str, str]],
     key_width: object = None,
 ) -> None:
+    if not rows:
+        return
     table = doc.add_table(rows=len(rows), cols=2)
     table.style = "Table Grid"
     for ri, (key, val) in enumerate(rows):
@@ -476,9 +478,6 @@ def _kv_table(
         if ri % 2 == 0:
             _shade_cell(k_cell, "EBF0F7")
             _shade_cell(v_cell, "EBF0F7")
-    if key_width:
-        for row in table.rows:
-            row.cells[0].width = key_width
 
 
 def _styled_table(
