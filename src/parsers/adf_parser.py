@@ -61,9 +61,32 @@ def parse_file(path: str) -> Optional[ADFPipelineInfo | ADFDatasetInfo | ADFLink
         data = json.loads(content)
     except json.JSONDecodeError:
         return None
+    return _classify_and_parse(data, path)
 
+
+def parse_content(content: str, path: str) -> Optional[ADFPipelineInfo | ADFDatasetInfo | ADFLinkedServiceInfo]:
+    """Parse ADF JSON from an in-memory string using *path* for classification hints."""
+    try:
+        data = json.loads(content)
+    except (json.JSONDecodeError, ValueError):
+        return None
+    return _classify_and_parse(data, path)
+
+
+def _classify_and_parse(data: dict, path: str) -> Optional[ADFPipelineInfo | ADFDatasetInfo | ADFLinkedServiceInfo]:
+    # 1. ADF resource type field — most reliable
+    adf_type = data.get("type", "").lower()
+    if "pipelines" in adf_type:
+        return _parse_pipeline(path, data)
+    if "datasets" in adf_type:
+        return _parse_dataset(path, data)
+    if "linkedservices" in adf_type:
+        return _parse_linked_service(path, data)
+    if "triggers" in adf_type:
+        return None  # triggers are not documented
+
+    # 2. Path-based classification
     lower_path = path.lower().replace("\\", "/")
-
     if "pipeline/" in lower_path:
         return _parse_pipeline(path, data)
     if "dataset/" in lower_path:
@@ -71,12 +94,13 @@ def parse_file(path: str) -> Optional[ADFPipelineInfo | ADFDatasetInfo | ADFLink
     if "linkedservice/" in lower_path:
         return _parse_linked_service(path, data)
 
+    # 3. Content-based fallback
     props = data.get("properties", {})
     if "activities" in props:
         return _parse_pipeline(path, data)
     if "linkedServiceName" in props:
         return _parse_dataset(path, data)
-    if "typeProperties" in props and "activities" not in props:
+    if "typeProperties" in props:
         return _parse_linked_service(path, data)
     return None
 

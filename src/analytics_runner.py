@@ -36,7 +36,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from .pr_scanner import GitHubScanner, AzDoScanner, scan_directory, ChangedFile, PRInfo
 from .parsers import repo_detector
 from .parsers.sql_parser import parse_sql, SQLFileInfo
-from .parsers.adf_parser import parse_file as parse_adf_file, ADFPipelineInfo, ADFDatasetInfo, ADFLinkedServiceInfo
+from .parsers.adf_parser import parse_file as parse_adf_file, parse_content as parse_adf_content, ADFPipelineInfo, ADFDatasetInfo, ADFLinkedServiceInfo
 from .parsers.function_parser import parse_file as parse_function_file, FunctionInfo
 from . import analytics_template_generator as doc_generator
 from .lineage import build_graph
@@ -281,21 +281,15 @@ def _parse_adf_files(files: list[ChangedFile]):
     for f in files:
         if not f.path.lower().endswith(".json"):
             continue
-        content = f.content
-        if content:
-            import tempfile, json as _json
-            try:
-                data = _json.loads(content)
-                with tempfile.NamedTemporaryFile(mode="w", suffix=".json",
-                                                 delete=False, encoding="utf-8") as tmp:
-                    _json.dump(data, tmp)
-                    tmp_path = tmp.name
-                result = parse_adf_file(tmp_path)
-                os.unlink(tmp_path)
-            except Exception:
+        try:
+            if f.content:
+                result = parse_adf_content(f.content, f.path)
+            elif Path(f.path).exists():
+                result = parse_adf_file(f.path)
+            else:
                 result = None
-        else:
-            result = parse_adf_file(f.path) if Path(f.path).exists() else None
+        except Exception:
+            result = None
 
         if isinstance(result, ADFPipelineInfo):
             pipelines.append(result)
