@@ -38,7 +38,7 @@ from .parsers import repo_detector
 from .parsers.sql_parser import parse_sql, SQLFileInfo
 from .parsers.adf_parser import parse_file as parse_adf_file, parse_content as parse_adf_content, ADFPipelineInfo, ADFDatasetInfo, ADFLinkedServiceInfo
 from .parsers.function_parser import parse_file as parse_function_file, FunctionInfo
-from . import analytics_template_generator as doc_generator
+from . import analytics_doc_generator as doc_generator
 from .lineage import build_graph
 from .analytics_docx_writer import write_docx
 
