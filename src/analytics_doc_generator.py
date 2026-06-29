@@ -2,8 +2,6 @@
 from __future__ import annotations
 import json
 import os
-import shutil
-import subprocess
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -144,25 +142,30 @@ def _read_claude_oauth_token() -> Optional[str]:
 
 
 def _call_claude(system_prompt: str, user_prompt: str, max_tokens: int = MAX_TOKENS) -> str:
-    """Call Claude via API key, Claude.ai OAuth token, or claude CLI (in that order)."""
+    """Call Claude via Anthropic SDK. Auth: ANTHROPIC_API_KEY env var first, then
+    Claude.ai OAuth token from ~/.claude/.credentials.json."""
     import anthropic
 
     api_key = os.getenv("ANTHROPIC_API_KEY")
-    if api_key:
-        client = anthropic.Anthropic(api_key=api_key)
-        resp = client.messages.create(
-            model=MODEL,
-            max_tokens=max_tokens,
-            system=system_prompt,
-            messages=[{"role": "user", "content": user_prompt}],
-        )
-        return resp.content[0].text
+    oauth_token = None if api_key else _read_claude_oauth_token()
 
-    # Try Claude.ai OAuth token from credentials.json (written by setup-doc-engine action)
-    oauth_token = _read_claude_oauth_token()
-    if oauth_token:
+    if not api_key and not oauth_token:
+        raise RuntimeError(
+            "No Claude credentials found. Set one of:\n"
+            "  ANTHROPIC_API_KEY — API key from console.anthropic.com (recommended for CI)\n"
+            "  CLAUDE_CREDENTIALS — base64 of ~/.claude/.credentials.json "
+            "(note: subscription OAuth tokens have low rate limits in CI)"
+        )
+
+    client = (
+        anthropic.Anthropic(api_key=api_key)
+        if api_key
+        else anthropic.Anthropic(auth_token=oauth_token)
+    )
+
+    # Retry up to 3 times on rate-limit; other errors propagate immediately.
+    for attempt in range(3):
         try:
-            client = anthropic.Anthropic(auth_token=oauth_token)
             resp = client.messages.create(
                 model=MODEL,
                 max_tokens=max_tokens,
@@ -170,35 +173,16 @@ def _call_claude(system_prompt: str, user_prompt: str, max_tokens: int = MAX_TOK
                 messages=[{"role": "user", "content": user_prompt}],
             )
             return resp.content[0].text
-        except Exception:
-            pass  # Fall through to CLI
-
-    # Last resort: claude CLI subprocess
-    cli = shutil.which("claude")
-    if not cli:
-        raise RuntimeError(
-            "Claude authentication failed. Set one of:\n"
-            "  ANTHROPIC_API_KEY — API key from console.anthropic.com\n"
-            "  CLAUDE_CREDENTIALS — base64 of ~/.claude/.credentials.json (re-encode if expired)"
-        )
-    combined = f"<system>\n{system_prompt}\n</system>\n\n{user_prompt}"
-    result = subprocess.run(
-        [cli, "-p", "--model", MODEL],
-        input=combined,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        timeout=_CLI_TIMEOUT,
-        check=False,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"claude CLI exited {result.returncode}: {result.stderr.strip() or result.stdout.strip()}\n"
-            "Tip: CLAUDE_CREDENTIALS OAuth tokens expire. Re-encode ~/.claude/.credentials.json "
-            "or switch to ANTHROPIC_API_KEY."
-        )
-    return result.stdout.strip()
+        except anthropic.RateLimitError as exc:
+            if attempt < 2:
+                wait = 60 * (attempt + 1)  # 60s, 120s
+                time.sleep(wait)
+            else:
+                raise RuntimeError(
+                    "Claude API rate limit exceeded after 3 attempts. "
+                    "Claude.ai subscription tokens share quota with local usage. "
+                    "Use ANTHROPIC_API_KEY for reliable CI."
+                ) from exc
 
 
 def _build_repo_metadata(
