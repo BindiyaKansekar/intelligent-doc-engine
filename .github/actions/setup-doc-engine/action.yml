@@ -72,17 +72,19 @@ runs:
         CLAUDE_CREDENTIALS: ${{ inputs.claude_credentials }}
         ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
       run: |
-        if [ -n "$CLAUDE_CREDENTIALS" ]; then
-          echo "Using Claude.ai session credentials (no API key required)."
-          mkdir -p ~/.claude
-          echo "$CLAUDE_CREDENTIALS" | base64 -d > ~/.claude/.credentials.json
-        elif [ -n "$ANTHROPIC_API_KEY" ]; then
-          echo "Using Anthropic API key."
-          echo "ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}" >> "$GITHUB_ENV"
-        else
+        if [ -z "$ANTHROPIC_API_KEY" ] && [ -z "$CLAUDE_CREDENTIALS" ]; then
           echo "::error::Neither CLAUDE_CREDENTIALS nor ANTHROPIC_API_KEY is set."
           echo "::error::Add one of these as a GitHub Actions secret:"
+          echo "::error::  ANTHROPIC_API_KEY  — from https://console.anthropic.com (recommended)"
           echo "::error::  CLAUDE_CREDENTIALS — base64 of ~/.claude/.credentials.json"
-          echo "::error::  ANTHROPIC_API_KEY  — from https://console.anthropic.com"
           exit 1
+        fi
+        if [ -n "$ANTHROPIC_API_KEY" ]; then
+          echo "Using Anthropic API key."
+          echo "ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}" >> "$GITHUB_ENV"
+        fi
+        if [ -n "$CLAUDE_CREDENTIALS" ]; then
+          echo "Writing Claude.ai session credentials (OAuth fallback)."
+          mkdir -p ~/.claude
+          echo "$CLAUDE_CREDENTIALS" | base64 -d > ~/.claude/.credentials.json
         fi
