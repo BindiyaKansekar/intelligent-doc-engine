@@ -163,8 +163,9 @@ def _call_claude(system_prompt: str, user_prompt: str, max_tokens: int = MAX_TOK
         else anthropic.Anthropic(auth_token=oauth_token)
     )
 
-    # Retry up to 3 times on rate-limit; other errors propagate immediately.
-    for attempt in range(3):
+    # Retry up to 6 times on rate-limit; other errors propagate immediately.
+    # Waits: 60, 120, 180, 240, 300 s (total ~15 min) to outlast OAuth quota windows.
+    for attempt in range(6):
         try:
             resp = client.messages.create(
                 model=MODEL,
@@ -174,12 +175,12 @@ def _call_claude(system_prompt: str, user_prompt: str, max_tokens: int = MAX_TOK
             )
             return resp.content[0].text
         except anthropic.RateLimitError as exc:
-            if attempt < 2:
-                wait = 60 * (attempt + 1)  # 60s, 120s
+            if attempt < 5:
+                wait = 60 * (attempt + 1)  # 60, 120, 180, 240, 300 s
                 time.sleep(wait)
             else:
                 raise RuntimeError(
-                    "Claude API rate limit exceeded after 3 attempts. "
+                    "Claude API rate limit exceeded after 6 attempts. "
                     "Claude.ai subscription tokens share quota with local usage. "
                     "Use ANTHROPIC_API_KEY for reliable CI."
                 ) from exc
